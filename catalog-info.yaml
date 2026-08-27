@@ -1,0 +1,15 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: PeaversSplits
+  description: "A World of Warcraft addon that calls out how far ahead or behind the published pace a Mythic+ run is at every boss, while the key is still running, using benchmark splits from PeaversSplitsData."
+  annotations:
+    github.com/project-slug: peavers-warcraft/PeaversSplits
+spec:
+  type: service
+  lifecycle: production
+  owner: peavers-warcraft
+  dependsOn:
+    - component:PeaversSplitsData
+    - component:PeaversCommons
+    - component:PeaversConfig

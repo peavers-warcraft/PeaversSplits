@@ -1,0 +1,31 @@
+## Interface: 120001, 120005, 120007
+
+## Title: |cff3abdf7Peavers|rSplits
+## Notes: Call out how far ahead or behind the pace your keystone is, at every boss
+## Author: Peavers
+## Version: 0.1.0
+
+## Category-enUS: Peavers
+
+## X-Website: https://peavers.io
+## X-Source-Code: https://github.com/peavers-warcraft/PeaversSplits
+# TODO(curseforge): add `## X-Curse-Project-ID: <id>` once the CurseForge project
+# exists. The release pipeline and .peavers.yml both want the same id, and
+# release.yml's cron stays disarmed until it is set.
+
+## Dependencies: PeaversSplitsData, PeaversCommons, PeaversConfig
+## SavedVariables: PeaversSplitsDB
+
+Changelog.lua
+
+src\Config\Config.lua
+src\Config\ConfigUI.lua
+
+src\Core\Announcer.lua
+src\Core\Pace.lua
+src\Core\Run.lua
+src\Core\Events.lua
+
+src\UI\PaceBar.lua
+
+src\Main.lua
