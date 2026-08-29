@@ -4,8 +4,7 @@
 iconType: TimerIcon
 
 # CurseForge project ID for download statistics
-# TODO: set once the CurseForge project for PeaversSplits is created.
-# curseForgeProjectId:
+curseForgeProjectId: 1673979
 
 # Tags for filtering and categorization
 tags:

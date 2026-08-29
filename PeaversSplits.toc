@@ -9,9 +9,7 @@
 
 ## X-Website: https://peavers.io
 ## X-Source-Code: https://github.com/peavers-warcraft/PeaversSplits
-# TODO(curseforge): add `## X-Curse-Project-ID: <id>` once the CurseForge project
-# exists. The release pipeline and .peavers.yml both want the same id, and
-# release.yml's cron stays disarmed until it is set.
+## X-Curse-Project-ID: 1673979
 
 ## Dependencies: PeaversSplitsData, PeaversCommons, PeaversConfig
 ## SavedVariables: PeaversSplitsDB
