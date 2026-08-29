@@ -1,9 +1,18 @@
 package-as: PeaversSplits
 
+# These become CurseForge `relations` on every upload. Only projects CurseForge
+# has APPROVED are valid relation slugs: naming an unapproved one fails the
+# whole upload with `errorCode 1018 ... does not exist, is not accessible`, not
+# just that relation.
 required-dependencies:
   - peaverscommons
-  - peaversraidtimingsdata
   - peaversconfig
+  # peaverssplitsdata is a real required dependency - see `## Dependencies` in
+  # PeaversSplits.toc, which is what the game reads. It is left out here only
+  # because its CurseForge project (1673980) was created alongside this one and
+  # is still awaiting moderation. Uncomment once it is approved; nothing else
+  # needs to change.
+  # - peaverssplitsdata
 
 ignore:
   - .git
