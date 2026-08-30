@@ -112,6 +112,15 @@ function Pace:OnRunStarted(run)
 		return
 	end
 
+	-- Run only calls this with a level in hand; the guard is here because the
+	-- alternative failure is silent and confident. Without a level the only
+	-- honest sentences below are lies - "no pace published for +0" names a pool
+	-- that could never exist, on a key whose real level may be fully covered.
+	if not run.level then
+		self:OnLevelUnknown(run)
+		return
+	end
+
 	if a.GetBosses(run.mapID, run.level) then
 		local suffix = run.recovered and " Reloaded mid-run, so the clock is the game's own." or ""
 		PS.Announcer:Local(("Pacing %s +%d against the published %s pool.%s")
@@ -123,10 +132,29 @@ function Pace:OnRunStarted(run)
 	local levels = a.GetLevels(run.mapID)
 	if levels and #levels > 0 then
 		PS.Announcer:Local(("No pace published for %s +%d yet. Levels with data: %s.")
-			:format(dungeon, run.level or 0, table.concat(levels, ", ")))
+			:format(dungeon, run.level, table.concat(levels, ", ")))
 	else
 		PS.Announcer:Local(("No pace published for %s yet."):format(dungeon))
 	end
+end
+
+---The keystone level never became readable, so nothing was compared.
+---
+---This is a different sentence from "no pace published", and keeping them apart
+---is the whole point: one is a fact about the published pool, the other is a
+---fault in this addon's reading of the game. Collapsing them is what let a
+---covered +10 be reported as an uncovered key.
+---@param run table
+function Pace:OnLevelUnknown(run)
+	if not PS.Config.announceStart then
+		return
+	end
+
+	local a = api()
+	local dungeon = (a and a.GetDungeonName(run.mapID)) or ("map " .. tostring(run.mapID))
+
+	PS.Announcer:Local(("Could not read the keystone level for %s, so splits will be called out "
+		.. "with nothing to compare against. /reload fixes it."):format(dungeon))
 end
 
 ---A boss died. Work out whether there is anything to say, and say it.

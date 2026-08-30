@@ -30,3 +30,6 @@ ignore:
   - local_deploy.sh
   - local_deploy.ps1
   - tools
+  # The offline harness. Not in the TOC, so it never loads in game either - this
+  # only keeps it out of the zip.
+  - tests

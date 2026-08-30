@@ -42,6 +42,13 @@ PS.Run = Run
 local CHALLENGE_MODE_TIMER =
 	(Enum and Enum.WorldElapsedTimerTypes and Enum.WorldElapsedTimerTypes.ChallengeMode) or 1
 
+-- How long to keep asking the game for the keystone level before giving up, and
+-- how often. Five seconds of asking costs nothing - the clock is already
+-- running by then - and covers the gap comfortably; in practice the level is
+-- there within a frame or two.
+local LEVEL_RETRY_DELAY = 0.25
+local LEVEL_RETRY_LIMIT = 20
+
 Run.active = false
 Run.mapID = nil
 Run.level = nil
@@ -49,6 +56,43 @@ Run.startedAt = nil
 Run.recovered = false
 Run.killed = {}
 Run.order = 0
+
+-- Bumped every time a run starts or stops, and captured by the level retry so a
+-- timer left over from the previous key cannot write a level into this one. A
+-- reset-and-restart is exactly the sequence that produces two in flight at once.
+Run.token = 0
+
+--------------------------------------------------------------------------------
+-- The keystone level, which is not readable the instant the run starts
+--------------------------------------------------------------------------------
+
+---The active keystone's level, or nil when the game has not published it yet.
+---
+---**`C_ChallengeMode.GetActiveKeystoneInfo` answers `0`, not `nil`, before the
+---client has the run's keystone**, and `0` is TRUE in Lua - so the obvious
+---`GetActiveKeystoneInfo() or nil` keeps the zero rather than rejecting it, and
+---every lookup downstream then asks the data addon for a "+0" pool that cannot
+---exist. That is not a miss the player can interpret: it comes out as the
+---sentence "No pace published for Murder Row +0 yet" over a dungeon with 54
+---published runs at the level actually being played.
+---
+---So a level is only a level here if it is a number and at least 1. Blizzard's
+---own tracker does the same thing by a different route - it does not read the
+---keystone until the challenge-mode world timer exists, and guards the active
+---map id even then (`ScenarioTimerMixin:CheckTimers`).
+---@return number|nil level
+local function activeLevel()
+	if not (C_ChallengeMode and C_ChallengeMode.GetActiveKeystoneInfo) then
+		return nil
+	end
+
+	local level = C_ChallengeMode.GetActiveKeystoneInfo()
+	if type(level) ~= "number" or level < 1 then
+		return nil
+	end
+
+	return level
+end
 
 --------------------------------------------------------------------------------
 -- Clock
@@ -101,20 +145,64 @@ end
 ---Begin tracking a keystone that started just now.
 ---@param mapID number mapChallengeModeID from CHALLENGE_MODE_START
 function Run:Start(mapID)
-	local level = C_ChallengeMode and C_ChallengeMode.GetActiveKeystoneInfo
-		and C_ChallengeMode.GetActiveKeystoneInfo() or nil
-
 	self.active = true
 	self.mapID = mapID
-	self.level = level
+	self.level = activeLevel()
 	self.startedAt = GetTime()
 	self.recovered = false
 	self.killed = {}
 	self.order = 0
+	self.token = self.token + 1
 
-	PeaversCommons.Utils.Debug(PS, ("run started: map %s +%s"):format(tostring(mapID), tostring(level)))
-	PS.Pace:OnRunStarted(self)
+	PeaversCommons.Utils.Debug(PS, ("run started: map %s +%s")
+		:format(tostring(mapID), tostring(self.level)))
+
+	-- The clock is set above and unconditionally, because it is the one thing
+	-- that must be exactly right. Only the ANNOUNCEMENT waits on the level.
+	if self.level then
+		PS.Pace:OnRunStarted(self)
+	else
+		self:ResolveLevel(self.token, 1)
+	end
+
 	PS.PaceBar:Update()
+end
+
+---Keep asking for the keystone level, and announce only once it is known.
+---
+---What is deferred is the sentence, never the clock: `startedAt` is already set,
+---so a level that arrives two frames late costs a moment of silence and nothing
+---else. Announcing off the first read instead is what produced a confident
+---"No pace published for ... +0 yet" at the start of a key that was fully
+---covered - a plausible wrong answer, which is worse than saying nothing.
+---@param token number the run this retry belongs to
+---@param attempt number
+function Run:ResolveLevel(token, attempt)
+	if not self.active or self.token ~= token or self.level then
+		return
+	end
+
+	local level = activeLevel()
+	if level then
+		self.level = level
+		PeaversCommons.Utils.Debug(PS, ("keystone level resolved to +%d on attempt %d")
+			:format(level, attempt))
+		PS.Pace:OnRunStarted(self)
+		PS.PaceBar:Update()
+		return
+	end
+
+	if attempt >= LEVEL_RETRY_LIMIT then
+		-- Out of tries. Say what is actually true - the level could not be read -
+		-- rather than reporting the absence of a pool nobody looked for.
+		PeaversCommons.Utils.Debug(PS, "keystone level never became readable")
+		PS.Pace:OnLevelUnknown(self)
+		return
+	end
+
+	C_Timer.After(LEVEL_RETRY_DELAY, function()
+		self:ResolveLevel(token, attempt + 1)
+	end)
 end
 
 ---Adopt a keystone that was already running when this addon loaded.
@@ -136,7 +224,8 @@ function Run:Recover()
 
 	self.active = true
 	self.mapID = C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID() or nil
-	self.level = C_ChallengeMode.GetActiveKeystoneInfo and C_ChallengeMode.GetActiveKeystoneInfo() or nil
+	self.level = activeLevel()
+	self.token = self.token + 1
 	-- No start instant, so GetElapsed falls through to the game's timer. Note we
 	-- deliberately do NOT synthesise `startedAt = GetTime() - elapsed`: that would
 	-- look like a precise clock and quietly bake in whatever the game's timer
@@ -151,7 +240,15 @@ function Run:Recover()
 
 	PeaversCommons.Utils.Debug(PS, ("run recovered at %.1fs: map %s +%s")
 		:format(elapsed, tostring(self.mapID), tostring(self.level)))
-	PS.Pace:OnRunStarted(self)
+
+	-- Same rule as Start: a level that is not readable yet is not a level, and an
+	-- unreadable one must not be announced as an uncovered one.
+	if self.level then
+		PS.Pace:OnRunStarted(self)
+	else
+		self:ResolveLevel(self.token, 1)
+	end
+
 	return true
 end
 
@@ -168,6 +265,9 @@ function Run:Stop()
 	self.recovered = false
 	self.killed = {}
 	self.order = 0
+	-- Orphans any level retry still in flight, so it cannot announce into the
+	-- next run - or into no run at all.
+	self.token = self.token + 1
 
 	PS.PaceBar:Update()
 end
@@ -213,6 +313,14 @@ function Run:OnEncounterEnd(encounterID, encounterName, success)
 
 	self.killed[encounterID] = elapsed
 	self.order = self.order + 1
+
+	-- Last chance to learn the level. If the retries above ran out - or the run
+	-- was recovered before the client had the keystone - a boss dying is proof
+	-- the run is well underway, so ask once more rather than spending the rest of
+	-- the key comparing against nothing.
+	if not self.level then
+		self.level = activeLevel()
+	end
 
 	PS.Pace:OnBossKilled(self, encounterID, encounterName, elapsed, self.order)
 	PS.PaceBar:Update()

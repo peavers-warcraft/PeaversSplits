@@ -32,9 +32,17 @@ local function PrintStatus()
 	local dungeon = api.GetDungeonName(run.mapID) or ("map " .. tostring(run.mapID))
 	Utils.Print(PS, ("running %s +%s at %s%s"):format(
 		dungeon,
-		tostring(run.level),
+		run.level and tostring(run.level) or "? (keystone level unreadable)",
 		PS.Pace.Clock(run:GetElapsed() or 0),
 		run.recovered and " (recovered after a reload)" or ""))
+
+	-- Separated from "no pace published" on purpose: one is the pool being thin,
+	-- the other is this addon failing to read the game, and they are fixed by
+	-- completely different things.
+	if not run.level then
+		Utils.Print(PS, "the keystone level could not be read, so nothing is being compared.")
+		return
+	end
 
 	-- What the run is actually being compared against, which is the question
 	-- somebody types /ps status to answer.
