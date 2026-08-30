@@ -3,7 +3,7 @@
 ## Title: |cff3abdf7Peavers|rSplits
 ## Notes: Call out how far ahead or behind the pace your keystone is, at every boss
 ## Author: Peavers
-## Version: 0.1.2
+## Version: 0.1.3
 
 ## Category-enUS: Peavers
 
