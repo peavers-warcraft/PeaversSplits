@@ -25,16 +25,26 @@ local function PrintStatus()
 
 	local run = PS.Run
 	if not run.active then
-		Utils.Print(PS, "no keystone running.")
+		Utils.Print(PS, PS.PaceBar:IsPreviewing()
+			and "no keystone running - the bar on screen is the test bar (/ps test to hide it)."
+			or "no keystone running.")
 		return
 	end
 
 	local dungeon = api.GetDungeonName(run.mapID) or ("map " .. tostring(run.mapID))
 	Utils.Print(PS, ("running %s +%s at %s%s"):format(
 		dungeon,
-		tostring(run.level),
+		run.level and tostring(run.level) or "? (keystone level unreadable)",
 		PS.Pace.Clock(run:GetElapsed() or 0),
 		run.recovered and " (recovered after a reload)" or ""))
+
+	-- Separated from "no pace published" on purpose: one is the pool being thin,
+	-- the other is this addon failing to read the game, and they are fixed by
+	-- completely different things.
+	if not run.level then
+		Utils.Print(PS, "the keystone level could not be read, so nothing is being compared.")
+		return
+	end
 
 	-- What the run is actually being compared against, which is the question
 	-- somebody types /ps status to answer.
@@ -68,6 +78,17 @@ PeaversCommons.SlashCommands:Register(addonName, "ps", {
 	end,
 	status = function()
 		PrintStatus()
+	end,
+	-- Reachable without opening settings, because placing the bar means dragging
+	-- it around the screen and the settings window is usually sitting on top of
+	-- where it needs to go.
+	test = function()
+		local Utils = PeaversCommons.Utils
+		if PS.PaceBar:TogglePreview() then
+			Utils.Print(PS, "test bar shown - drag it into place, /ps test again to hide it.")
+		else
+			Utils.Print(PS, "test bar hidden.")
+		end
 	end,
 })
 

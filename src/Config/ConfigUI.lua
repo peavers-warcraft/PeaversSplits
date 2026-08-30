@@ -101,14 +101,39 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 	end
 
 	y = y - 8
+
+	-- The bar otherwise only exists during a key, so its size and position had to
+	-- be chosen blind and checked by walking into a dungeon. This draws it with a
+	-- sample boss on a looping clock, through the real rendering path.
+	local function previewLabel()
+		return PS.PaceBar:IsPreviewing() and "Hide the test bar" or "Show a test bar"
+	end
+
+	local previewButton
+	previewButton = W:CreateButton(parentFrame, previewLabel(), {
+		width = 150,
+		onClick = function()
+			PS.PaceBar:TogglePreview()
+			-- Read the state back rather than assuming the toggle took: it refuses
+			-- while a key is running, and a button that lies about which way it went
+			-- is worse than one that does nothing.
+			previewButton:SetLabel(previewLabel())
+		end,
+	})
+	previewButton:SetPoint("TOPLEFT", indent, y)
+	y = y - 34
+
 	local barNote = W:CreateLabel(parentFrame,
 		"Drag it to move it. The track runs to a little past the pool's slow " ..
 		"quarter, the shaded block is its middle half, and the line is the pace " ..
 		"itself - so being inside the block is something you can see rather than " ..
-		"something you have to be told.",
+		"something you have to be told.\n\n" ..
+		"The test bar sweeps a sample boss so you can place it outside a key. Its " ..
+		"numbers are invented and it says so in its header; a real key takes the " ..
+		"bar back automatically.",
 		{ width = width, wrap = true })
 	barNote:SetPoint("TOPLEFT", indent, y)
-	y = y - 56
+	y = y - 84
 
 	local _, headerY = W:CreateSectionHeader(parentFrame, "What to include", indent, y)
 	y = headerY - 8

@@ -55,6 +55,7 @@ local lastUpdate = 0
 ---checked at all, since neither this machine nor CI can open the game.
 PaceBar.state = {
 	shown = false,
+	preview = false,
 }
 
 -- Redrawing every frame buys nothing: the numbers move in seconds and the eye
@@ -64,6 +65,46 @@ local UPDATE_INTERVAL = 0.1
 -- How much room past the slow quarter the track leaves, so a run that is behind
 -- still has somewhere to go before it saturates.
 local HEADROOM = 1.25
+
+--------------------------------------------------------------------------------
+-- The preview
+--
+-- The bar only ever draws during a key, which made it the one surface here that
+-- could not be looked at while deciding where to put it. Dragging a frame you
+-- cannot see, then walking into a +10 to find out, is not a way to lay out a UI.
+--
+-- So: a fabricated boss on a clock that sweeps, fed through the SAME Refresh
+-- that a real run uses. A preview drawn by its own code path would be a second
+-- renderer that agrees with the first only until one of them changes.
+--------------------------------------------------------------------------------
+
+-- Deliberately not read from the published pool. These numbers never move, so
+-- the bar looks identical every time it is opened - which is what makes it
+-- usable for judging size and position - and no published figure can drift
+-- under a layout decision that was made against it.
+local PREVIEW_BOSS = {
+	order = 1,
+	name = "Sample Boss",
+	split = 465,
+	fast = 410,
+	slow = 540,
+	runs = 54,
+}
+
+-- Seconds for the fill to travel the whole track once. Long enough to read at
+-- each point, short enough that both colours show up without waiting.
+local PREVIEW_SWEEP = 12
+
+local PREVIEW_SCALE = math.max(PREVIEW_BOSS.slow, PREVIEW_BOSS.split) * HEADROOM
+
+-- The sweep starts ON the pace rather than at zero. Opening on an empty track
+-- shows the one state that says least about the layout - no fill against the
+-- band, and "on pace" is the phrase most likely to be the widest.
+local PREVIEW_START = PREVIEW_BOSS.split / PREVIEW_SCALE
+
+---When previewing, the `GetTime()` the sweep started at. Nil otherwise, and it
+---is the only thing that says the bar is showing something invented.
+local previewFrom = nil
 
 ---A theme colour as four numbers, with a literal fallback.
 ---
@@ -209,6 +250,62 @@ local function nextBoss(run)
 end
 
 --------------------------------------------------------------------------------
+-- Preview control
+--------------------------------------------------------------------------------
+
+---Whether the bar is currently showing invented numbers.
+---@return boolean
+function PaceBar:IsPreviewing()
+	return previewFrom ~= nil
+end
+
+---Turn the preview on or off.
+---
+---`showBar` is deliberately not consulted: asking for the test bar is a more
+---specific instruction than the checkbox, and someone who has the bar switched
+---off is exactly the person who wants to see what they are switching on.
+---@param on boolean
+function PaceBar:SetPreview(on)
+	if on and PS.Run.active then
+		-- A real key is running and its numbers are the ones that matter.
+		PeaversCommons.Utils.Print(PS, "not while a key is running - the bar is showing the real thing.")
+		return
+	end
+
+	previewFrom = on and (GetTime() - PREVIEW_SWEEP * PREVIEW_START) or nil
+	self:Update()
+end
+
+---@return boolean previewing the state after the toggle
+function PaceBar:TogglePreview()
+	self:SetPreview(not self:IsPreviewing())
+	return self:IsPreviewing()
+end
+
+---Seconds into the run, and the boss being raced - from the live key, or from
+---the preview. One source, so both go through the same drawing code below.
+---@return number|nil elapsed, table|nil boss
+function PaceBar:Source()
+	-- A real key always wins, and reclaims the bar without anybody having to
+	-- remember to turn the preview off first.
+	if previewFrom and PS.Run.active then
+		previewFrom = nil
+	end
+
+	if previewFrom then
+		local cycle = ((GetTime() - previewFrom) % PREVIEW_SWEEP) / PREVIEW_SWEEP
+		return cycle * PREVIEW_SCALE, PREVIEW_BOSS
+	end
+
+	local run = PS.Run
+	if not (PS.Config.showBar and run.active) then
+		return nil, nil
+	end
+
+	return run:GetElapsed(), nextBoss(run)
+end
+
+--------------------------------------------------------------------------------
 -- Drawing
 --------------------------------------------------------------------------------
 
@@ -217,15 +314,7 @@ function PaceBar:Refresh()
 		return
 	end
 
-	local run = PS.Run
-	if not (PS.Config.showBar and run.active) then
-		frame:Hide()
-		self.state.shown = false
-		return
-	end
-
-	local elapsed = run:GetElapsed()
-	local boss = nextBoss(run)
+	local elapsed, boss = self:Source()
 
 	-- No pace for this level, or every boss already down: the bar has nothing to
 	-- race against, and a bar with no reference is the lone-pin problem the
@@ -233,6 +322,7 @@ function PaceBar:Refresh()
 	if not (elapsed and boss) then
 		frame:Hide()
 		self.state.shown = false
+		self.state.preview = false
 		return
 	end
 
@@ -243,6 +333,7 @@ function PaceBar:Refresh()
 	if scale <= 0 then
 		frame:Hide()
 		self.state.shown = false
+		self.state.preview = false
 		return
 	end
 
@@ -277,7 +368,9 @@ function PaceBar:Refresh()
 		fill:SetColorTexture(colour("accent", { 0.506, 0.549, 0.973, 1 }))
 	end
 
-	local header = ("Next: %s"):format(boss.name or "?")
+	-- A bar showing invented numbers has to say so on its face. Someone glancing
+	-- at it should never be able to read a made-up pace as their own run's.
+	local header = ("%s%s"):format(previewFrom and "Preview: " or "Next: ", boss.name or "?")
 	local phrase = PS.Pace.Delta(delta)
 	headerText:SetText(header)
 	deltaText:SetText(phrase)
@@ -291,6 +384,7 @@ function PaceBar:Refresh()
 	deltaText:SetTextColor(r, g, b, a)
 
 	local state = self.state
+	state.preview = previewFrom ~= nil
 	state.header = header
 	state.delta = phrase
 	state.tick = at(boss.split)
