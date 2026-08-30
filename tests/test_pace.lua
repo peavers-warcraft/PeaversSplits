@@ -167,6 +167,105 @@ case("a key reset while the level is still resolving", function()
 end)
 
 --------------------------------------------------------------------------------
+-- The test bar. It exists so the layout can be judged outside a key, so what
+-- matters is that it goes through the SAME Refresh a real run does - a preview
+-- with its own drawing code would agree with the real bar only until one of
+-- them changed.
+--------------------------------------------------------------------------------
+
+case("the test bar draws without a key", function()
+	local _, PS = harness.load()
+
+	check(not PS.PaceBar:IsPreviewing(), "starts off")
+	check(PS.PaceBar:GetState().shown == false, "and the bar starts hidden")
+
+	check(PS.PaceBar:TogglePreview() == true, "toggling turns it on")
+
+	local state = PS.PaceBar:GetState()
+	check(state.shown == true, "the bar is drawn with no run active")
+	check(state.preview == true, "and knows it is showing invented numbers")
+	check(state.header ~= nil and state.header:find("Preview:", 1, true) ~= nil,
+		"its header says so, got " .. tostring(state.header))
+
+	-- The geometry is the whole point: a track with no band or tick would look
+	-- fine in a screenshot and tell you nothing about placement.
+	check((state.bandWidth or 0) > 0, "the band has width, got " .. tostring(state.bandWidth))
+	check((state.tick or 0) > 0, "the tick is placed, got " .. tostring(state.tick))
+	check((state.fillWidth or 0) > 0, "the fill has width, got " .. tostring(state.fillWidth))
+
+	-- It opens on the pace, so the first thing drawn is the state that shows the
+	-- most: fill, band and tick together rather than an empty track.
+	check(math.abs((state.fillWidth or 0) - (state.tick or 0)) < 2,
+		("the fill opens on the tick, %s vs %s")
+			:format(tostring(state.fillWidth), tostring(state.tick)))
+	check(state.delta == "on pace", "and reads as on pace, got " .. tostring(state.delta))
+
+	check(PS.PaceBar:TogglePreview() == false, "toggling again turns it off")
+	check(PS.PaceBar:GetState().shown == false, "and hides the bar")
+end)
+
+case("the test bar ignores the show-bar checkbox", function()
+	local _, PS = harness.load()
+
+	-- Someone with the bar switched off is exactly the person who wants to see
+	-- what they would be switching on.
+	PS.Config.showBar = false
+	PS.PaceBar:SetPreview(true)
+
+	check(PS.PaceBar:GetState().shown == true, "still draws when the bar is disabled")
+end)
+
+case("the test bar sweeps, so both colours can be seen", function()
+	local game, PS = harness.load()
+
+	PS.PaceBar:SetPreview(true)
+	local first = PS.PaceBar:GetState().fillWidth
+
+	-- Far enough round the loop to be unmistakably elsewhere, but not a whole
+	-- cycle back to the start.
+	game.now = game.now + 5
+	PS.PaceBar:Refresh()
+	local second = PS.PaceBar:GetState().fillWidth
+
+	check(second ~= first,
+		("the fill moves with the clock, %s then %s"):format(tostring(first), tostring(second)))
+end)
+
+case("a real key takes the bar back from the test bar", function()
+	local game, PS = harness.load()
+
+	PS.PaceBar:SetPreview(true)
+	check(PS.PaceBar:IsPreviewing(), "previewing before the key")
+
+	game.keystoneLevel = 10
+	game.activeMapID = MURDER_ROW
+	game.challengeActive = true
+	PS.Events:Handle("CHALLENGE_MODE_START", MURDER_ROW)
+
+	check(not PS.PaceBar:IsPreviewing(), "the key reclaims the bar")
+
+	local state = PS.PaceBar:GetState()
+	check(state.preview == false, "and the bar stops calling itself a preview")
+	check(state.header ~= nil and state.header:find("Next:", 1, true) ~= nil,
+		"it is racing a real boss, got " .. tostring(state.header))
+end)
+
+case("the test bar refuses to start mid-key", function()
+	local game, PS = harness.load()
+
+	game.keystoneLevel = 10
+	game.activeMapID = MURDER_ROW
+	game.challengeActive = true
+	PS.Events:Handle("CHALLENGE_MODE_START", MURDER_ROW)
+
+	PS.PaceBar:SetPreview(true)
+
+	check(not PS.PaceBar:IsPreviewing(),
+		"a running key is not overwritten with a sample\n" .. transcript(game))
+	check(said(game, "not while a key is running"), "and says why\n" .. transcript(game))
+end)
+
+--------------------------------------------------------------------------------
 -- Every .lua on disk is listed in the TOC, and every listed file exists.
 -- A file in one and not the other is the failure that froze PeaversConsumables
 -- for a month: still committed, still packaged, never loaded.

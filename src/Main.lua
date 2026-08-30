@@ -25,7 +25,9 @@ local function PrintStatus()
 
 	local run = PS.Run
 	if not run.active then
-		Utils.Print(PS, "no keystone running.")
+		Utils.Print(PS, PS.PaceBar:IsPreviewing()
+			and "no keystone running - the bar on screen is the test bar (/ps test to hide it)."
+			or "no keystone running.")
 		return
 	end
 
@@ -76,6 +78,17 @@ PeaversCommons.SlashCommands:Register(addonName, "ps", {
 	end,
 	status = function()
 		PrintStatus()
+	end,
+	-- Reachable without opening settings, because placing the bar means dragging
+	-- it around the screen and the settings window is usually sitting on top of
+	-- where it needs to go.
+	test = function()
+		local Utils = PeaversCommons.Utils
+		if PS.PaceBar:TogglePreview() then
+			Utils.Print(PS, "test bar shown - drag it into place, /ps test again to hide it.")
+		else
+			Utils.Print(PS, "test bar hidden.")
+		end
 	end,
 })
 
