@@ -259,6 +259,131 @@ case("a dungeon that never becomes readable says so, and says which half", funct
 end)
 
 --------------------------------------------------------------------------------
+-- Bosses dying, which is the entire point of the addon and had NO coverage at
+-- all until a live key came back with a working bar and no chat lines.
+--
+-- The gap was invisible because everything either side of it was tested: the
+-- announcement at the start, the pace lookup, the bar. Nothing drove an
+-- `ENCOUNTER_END` through to a message, so the one path the addon exists for was
+-- the one path nobody had run offline.
+--
+-- Note what the bar can and cannot tell you here. `run.killed[id]` is recorded
+-- BEFORE `OnBossKilled`, and the bar redraws off its own OnUpdate ticker - so a
+-- bar that advances proves the event arrived and proves nothing whatever about
+-- the split being said. These assert on the message.
+--------------------------------------------------------------------------------
+
+local VOIDSCAR_BOSSES = { 3285, 3286, 3287 }
+
+---Start a +10 Voidscar in a party, and hand back the harness.
+local function startVoidscar(inGroup)
+	local game, PS = harness.load()
+	game.keystoneLevel = 10
+	game.activeMapID = VOIDSCAR
+	game.challengeActive = true
+	game.inGroup = inGroup and true or false
+	PS.Events:Handle("CHALLENGE_MODE_START", 2664)
+	return game, PS
+end
+
+---What the party was told, joined.
+local function partyChat(game)
+	local out = {}
+	for _, m in ipairs(game.sent) do
+		out[#out + 1] = m.message
+	end
+	return table.concat(out, " | ")
+end
+
+case("every boss that dies is called out to the party", function()
+	local game, PS = startVoidscar(true)
+
+	for i, id in ipairs(VOIDSCAR_BOSSES) do
+		game:advance(400)
+		PS.Events:Handle("ENCOUNTER_END", id, "Boss " .. i, 8, 5, 1)
+	end
+
+	check(#game.sent == 3,
+		("three bosses, three lines - got %d\n        party: %s"):format(#game.sent, partyChat(game)))
+	check(PS.Run.order == 3, "the ordinal counted every kill, got " .. tostring(PS.Run.order))
+
+	for _, m in ipairs(game.sent) do
+		check(m.channel == "PARTY", "sent to PARTY, got " .. tostring(m.channel))
+	end
+end)
+
+case("a split carries the delta against the published pace", function()
+	local game, PS = startVoidscar(true)
+
+	-- Taz'Rah's published split at +10 is 530.2s. Come in a clear minute early
+	-- and the line has to say so, with a sign that means what it looks like.
+	game:advance(470)
+	PS.Events:Handle("ENCOUNTER_END", 3285, "Taz'Rah", 8, 5, 1)
+
+	check(#game.sent == 1, "one line for one boss\n        party: " .. partyChat(game))
+	check(partyChat(game):find("Taz'Rah", 1, true) ~= nil,
+		"names the boss\n        party: " .. partyChat(game))
+	check(partyChat(game):find("-", 1, true) ~= nil,
+		"an early kill reads as ahead of pace\n        party: " .. partyChat(game))
+end)
+
+case("a wipe is not a split", function()
+	local game, PS = startVoidscar(true)
+
+	game:advance(400)
+	-- success = 0. ENCOUNTER_END fires on a wipe too, and calling that out as a
+	-- kill would be the addon announcing something that did not happen.
+	PS.Events:Handle("ENCOUNTER_END", 3285, "Taz'Rah", 8, 5, 0)
+
+	check(#game.sent == 0, "says nothing\n        party: " .. partyChat(game))
+	check(PS.Run.order == 0, "and does not advance the ordinal")
+
+	-- The kill afterwards still counts.
+	game:advance(100)
+	PS.Events:Handle("ENCOUNTER_END", 3285, "Taz'Rah", 8, 5, 1)
+	check(#game.sent == 1, "the kill after the wipe is called out\n        party: " .. partyChat(game))
+end)
+
+case("the same boss is never called out twice", function()
+	local game, PS = startVoidscar(true)
+
+	game:advance(400)
+	PS.Events:Handle("ENCOUNTER_END", 3285, "Taz'Rah", 8, 5, 1)
+	-- A repeated ENCOUNTER_END reads to the party as the boss having died twice.
+	game:advance(5)
+	PS.Events:Handle("ENCOUNTER_END", 3285, "Taz'Rah", 8, 5, 1)
+
+	check(#game.sent == 1, "one line only\n        party: " .. partyChat(game))
+end)
+
+case("running solo, a split still reaches the player", function()
+	local game, PS = startVoidscar(false)
+
+	game:advance(400)
+	PS.Events:Handle("ENCOUNTER_END", 3285, "Taz'Rah", 8, 5, 1)
+
+	-- Nothing goes to a party that does not exist, but the split is not dropped:
+	-- the player's own frame is the fallback, never silence.
+	check(#game.sent == 0, "sends nothing to a party that is not there")
+	check(said(game, "Taz'Rah"),
+		"but the player still sees their own split\n" .. transcript(game))
+end)
+
+case("a boss with no published split is still called out", function()
+	local game, PS = startVoidscar(true)
+
+	game:advance(400)
+	-- An encounter id the pool has never heard of. The split is a fact about this
+	-- run and does not need anybody else to have done the dungeon.
+	PS.Events:Handle("ENCOUNTER_END", 999999, "Someone New", 8, 5, 1)
+
+	check(#game.sent == 1,
+		"the run's own split is worth saying\n        party: " .. partyChat(game))
+	check(partyChat(game):find("Someone New", 1, true) ~= nil,
+		"named from the event\n        party: " .. partyChat(game))
+end)
+
+--------------------------------------------------------------------------------
 -- The test bar. It exists so the layout can be judged outside a key, so what
 -- matters is that it goes through the SAME Refresh a real run does - a preview
 -- with its own drawing code would agree with the real bar only until one of

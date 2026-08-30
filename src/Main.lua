@@ -90,6 +90,19 @@ PeaversCommons.SlashCommands:Register(addonName, "ps", {
 			Utils.Print(PS, "test bar hidden.")
 		end
 	end,
+	-- Every way this addon can decline to say something logs a Debug line saying
+	-- which one it was, and until now there was no way to turn those on: the
+	-- setting existed, with no command and no checkbox. A silent addon whose only
+	-- introspection is unreachable is not diagnosable at all - the alternative was
+	-- editing Config.lua on disk, which is not something to ask of anyone.
+	debug = function()
+		local Utils = PeaversCommons.Utils
+		PS.Config.DEBUG_ENABLED = not PS.Config.DEBUG_ENABLED
+		PS.Config:Save()
+		Utils.Print(PS, PS.Config.DEBUG_ENABLED
+			and "debug on - every split now logs where it went, and every skipped one logs why."
+			or "debug off.")
+	end,
 })
 
 --------------------------------------------------------------------------------
