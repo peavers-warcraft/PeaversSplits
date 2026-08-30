@@ -42,10 +42,10 @@ PS.Run = Run
 local CHALLENGE_MODE_TIMER =
 	(Enum and Enum.WorldElapsedTimerTypes and Enum.WorldElapsedTimerTypes.ChallengeMode) or 1
 
--- How long to keep asking the game for the keystone level before giving up, and
--- how often. Five seconds of asking costs nothing - the clock is already
--- running by then - and covers the gap comfortably; in practice the level is
--- there within a frame or two.
+-- How long to keep asking the game which key this is before giving up, and how
+-- often. Five seconds of asking costs nothing - the clock is already running by
+-- then - and covers the gap comfortably; in practice both facts are there
+-- within a frame or two.
 local LEVEL_RETRY_DELAY = 0.25
 local LEVEL_RETRY_LIMIT = 20
 
@@ -92,6 +92,38 @@ local function activeLevel()
 	end
 
 	return level
+end
+
+---Which dungeon this key is, in the ONE id space the published pool is keyed by.
+---
+---**`C_ChallengeMode.GetActiveChallengeMapID()` is the authority, never the
+---`CHALLENGE_MODE_START` payload.** The event's argument is not the
+---`mapChallengeModeID` the data addon is keyed by, so trusting it produced
+---"No published pace for this dungeon yet" over Voidscar Arena +10 - a dungeon
+---with 21 published runs at exactly that level.
+---
+---This is the same failure the keystone level had, through the other door, and
+---it is worth naming why it survived a test suite: the offline harness fired
+---`CHALLENGE_MODE_START` with the map id the test author believed it carried, so
+---it only ever re-tested that belief. The game supplies the payload; the harness
+---supplied the answer.
+---
+---There is deliberately no fallback to the payload. A momentarily-unreadable map
+---id is covered by the retry below, whereas falling back to an id from a
+---different space would silently pace the run against the wrong dungeon - a
+---confident wrong answer, which is worse than a moment of silence.
+---@return number|nil mapChallengeModeID
+local function activeMapID()
+	if not (C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID) then
+		return nil
+	end
+
+	local mapID = C_ChallengeMode.GetActiveChallengeMapID()
+	if type(mapID) ~= "number" or mapID < 1 then
+		return nil
+	end
+
+	return mapID
 end
 
 --------------------------------------------------------------------------------
@@ -143,10 +175,15 @@ end
 --------------------------------------------------------------------------------
 
 ---Begin tracking a keystone that started just now.
----@param mapID number mapChallengeModeID from CHALLENGE_MODE_START
-function Run:Start(mapID)
+---
+---`eventMapID` is the `CHALLENGE_MODE_START` payload and is deliberately NOT
+---used to identify the dungeon - see `activeMapID`. It is kept only so the debug
+---line can show what the event said next to what the API said, which is the
+---evidence anyone re-opening this will want.
+---@param eventMapID any the CHALLENGE_MODE_START payload, for logging only
+function Run:Start(eventMapID)
 	self.active = true
-	self.mapID = mapID
+	self.mapID = activeMapID()
 	self.level = activeLevel()
 	self.startedAt = GetTime()
 	self.recovered = false
@@ -154,54 +191,60 @@ function Run:Start(mapID)
 	self.order = 0
 	self.token = self.token + 1
 
-	PeaversCommons.Utils.Debug(PS, ("run started: map %s +%s")
-		:format(tostring(mapID), tostring(self.level)))
+	PeaversCommons.Utils.Debug(PS, ("run started: map %s +%s (event payload: %s)")
+		:format(tostring(self.mapID), tostring(self.level), tostring(eventMapID)))
 
 	-- The clock is set above and unconditionally, because it is the one thing
-	-- that must be exactly right. Only the ANNOUNCEMENT waits on the level.
-	if self.level then
+	-- that must be exactly right. Only the ANNOUNCEMENT waits on the facts.
+	if self.mapID and self.level then
 		PS.Pace:OnRunStarted(self)
 	else
-		self:ResolveLevel(self.token, 1)
+		self:ResolveRun(self.token, 1)
 	end
 
 	PS.PaceBar:Update()
 end
 
----Keep asking for the keystone level, and announce only once it is known.
+---Keep asking which key this is, and announce only once BOTH facts are known.
 ---
 ---What is deferred is the sentence, never the clock: `startedAt` is already set,
----so a level that arrives two frames late costs a moment of silence and nothing
+---so a fact that arrives two frames late costs a moment of silence and nothing
 ---else. Announcing off the first read instead is what produced a confident
 ---"No pace published for ... +0 yet" at the start of a key that was fully
 ---covered - a plausible wrong answer, which is worse than saying nothing.
+---
+---The map id is resolved here for the same reason and in the same loop. It used
+---to be taken from the event payload and never re-read, which is how a covered
+---dungeon came out as "No published pace for this dungeon yet".
 ---@param token number the run this retry belongs to
 ---@param attempt number
-function Run:ResolveLevel(token, attempt)
-	if not self.active or self.token ~= token or self.level then
+function Run:ResolveRun(token, attempt)
+	if not self.active or self.token ~= token then
 		return
 	end
 
-	local level = activeLevel()
-	if level then
-		self.level = level
-		PeaversCommons.Utils.Debug(PS, ("keystone level resolved to +%d on attempt %d")
-			:format(level, attempt))
+	self.mapID = self.mapID or activeMapID()
+	self.level = self.level or activeLevel()
+
+	if self.mapID and self.level then
+		PeaversCommons.Utils.Debug(PS, ("run resolved to map %d +%d on attempt %d")
+			:format(self.mapID, self.level, attempt))
 		PS.Pace:OnRunStarted(self)
 		PS.PaceBar:Update()
 		return
 	end
 
 	if attempt >= LEVEL_RETRY_LIMIT then
-		-- Out of tries. Say what is actually true - the level could not be read -
-		-- rather than reporting the absence of a pool nobody looked for.
-		PeaversCommons.Utils.Debug(PS, "keystone level never became readable")
-		PS.Pace:OnLevelUnknown(self)
+		-- Out of tries. Say which fact was missing - never report the absence of a
+		-- pool nobody managed to look for.
+		PeaversCommons.Utils.Debug(PS, ("gave up reading the key: map %s +%s")
+			:format(tostring(self.mapID), tostring(self.level)))
+		PS.Pace:OnRunUnreadable(self)
 		return
 	end
 
 	C_Timer.After(LEVEL_RETRY_DELAY, function()
-		self:ResolveLevel(token, attempt + 1)
+		self:ResolveRun(token, attempt + 1)
 	end)
 end
 
@@ -223,7 +266,7 @@ function Run:Recover()
 	end
 
 	self.active = true
-	self.mapID = C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID() or nil
+	self.mapID = activeMapID()
 	self.level = activeLevel()
 	self.token = self.token + 1
 	-- No start instant, so GetElapsed falls through to the game's timer. Note we
@@ -241,12 +284,12 @@ function Run:Recover()
 	PeaversCommons.Utils.Debug(PS, ("run recovered at %.1fs: map %s +%s")
 		:format(elapsed, tostring(self.mapID), tostring(self.level)))
 
-	-- Same rule as Start: a level that is not readable yet is not a level, and an
-	-- unreadable one must not be announced as an uncovered one.
-	if self.level then
+	-- Same rule as Start: a fact that is not readable yet is not a fact, and an
+	-- unreadable key must not be announced as an uncovered one.
+	if self.mapID and self.level then
 		PS.Pace:OnRunStarted(self)
 	else
-		self:ResolveLevel(self.token, 1)
+		self:ResolveRun(self.token, 1)
 	end
 
 	return true
