@@ -33,6 +33,33 @@ local function ResolveWidth(parentFrame, indent)
 	return 360
 end
 
+-- A wrapped note is as tall as the wrapping makes it, which depends on the
+-- panel width and so is not knowable while writing the page. Measure it instead
+-- of advancing by a constant: a constant is right for one string at one width
+-- and silently overlaps the next thing the moment either changes.
+local NOTE_GAP = 16
+
+local function AddNote(parentFrame, text, indent, y, width)
+	local note = W:CreateLabel(parentFrame, text, { width = width, wrap = true })
+	note:SetPoint("TOPLEFT", indent, y)
+	-- Fall back to one line's worth if the font has not resolved a height yet,
+	-- so the worst case is a cramped page rather than text drawn over text.
+	local height = note:GetStringHeight() or 0
+	if height <= 0 then
+		height = 14
+	end
+	return note, y - height - NOTE_GAP
+end
+
+-- Every other Peavers page ends this way. The page is a scroll child, and a
+-- scroll frame takes its scroll range from the child's height - leaving it at
+-- the 1px PeaversConfig creates it with means the bottom of a long page cannot
+-- be reached at all.
+local function FinishPage(parentFrame, y)
+	parentFrame:SetHeight(math.abs(y) + 30)
+	return parentFrame
+end
+
 --------------------------------------------------------------------------------
 -- Announcements
 --------------------------------------------------------------------------------
@@ -71,12 +98,11 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 	channel:SetPoint("TOPLEFT", indent, y)
 	y = y - 56
 
-	local note = W:CreateLabel(parentFrame,
+	local _, noteY = AddNote(parentFrame,
 		"Party chat only - a split is about the group's run. Outside a group, and " ..
 		"whenever a channel is unavailable, the line goes to your own chat frame instead.",
-		{ width = width, wrap = true })
-	note:SetPoint("TOPLEFT", indent, y)
-	y = y - 40
+		indent, y, width)
+	y = noteY - 8
 
 	local _, barY = W:CreateSectionHeader(parentFrame, "The live bar", indent, y)
 	y = barY - 8
@@ -123,7 +149,7 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 	previewButton:SetPoint("TOPLEFT", indent, y)
 	y = y - 34
 
-	local barNote = W:CreateLabel(parentFrame,
+	local _, barNoteY = AddNote(parentFrame,
 		"Drag it to move it. The track runs to a little past the pool's slow " ..
 		"quarter, the shaded block is its middle half, and the line is the pace " ..
 		"itself - so being inside the block is something you can see rather than " ..
@@ -131,9 +157,8 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 		"The test bar sweeps a sample boss so you can place it outside a key. Its " ..
 		"numbers are invented and it says so in its header; a real key takes the " ..
 		"bar back automatically.",
-		{ width = width, wrap = true })
-	barNote:SetPoint("TOPLEFT", indent, y)
-	y = y - 84
+		indent, y, width)
+	y = barNoteY - 8
 
 	local _, headerY = W:CreateSectionHeader(parentFrame, "What to include", indent, y)
 	y = headerY - 8
@@ -171,15 +196,14 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 	end
 
 	y = y - 12
-	local spreadNote = W:CreateLabel(parentFrame,
+	local _, spreadNoteY = AddNote(parentFrame,
 		"The published pace carries the middle half of the pool as well as its " ..
 		"middle. Being forty seconds off means very little on a boss where that " ..
 		"middle half spans four minutes, so saying when a split lands inside it " ..
 		"is what keeps a number from reading as a verdict.",
-		{ width = width, wrap = true })
-	spreadNote:SetPoint("TOPLEFT", indent, y)
+		indent, y, width)
 
-	return parentFrame
+	return FinishPage(parentFrame, spreadNoteY)
 end
 
 --------------------------------------------------------------------------------
@@ -210,10 +234,9 @@ function ConfigUI:BuildPacePage(parentFrame)
 			tostring(api.GetLastUpdate() or "unknown"))
 	end
 
-	local note = W:CreateLabel(parentFrame, body, { width = width, wrap = true })
-	note:SetPoint("TOPLEFT", indent, y)
+	local _, noteY = AddNote(parentFrame, body, indent, y, width)
 
-	return parentFrame
+	return FinishPage(parentFrame, noteY)
 end
 
 --------------------------------------------------------------------------------
