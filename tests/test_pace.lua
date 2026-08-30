@@ -167,6 +167,98 @@ case("a key reset while the level is still resolving", function()
 end)
 
 --------------------------------------------------------------------------------
+-- The dungeon, which is the other half of "which key is this".
+--
+-- Reported from a live +10 Voidscar Arena: "No published pace for this dungeon
+-- yet", over a dungeon with 21 published runs at exactly that level. The map id
+-- was being taken from the `CHALLENGE_MODE_START` payload, which is not the
+-- `mapChallengeModeID` the pool is keyed by.
+--
+-- **These tests exist because the ones above could not have caught it.** Every
+-- case here fires the event with the map id in hand AND sets `activeMapID` to
+-- the same value, so the payload and the API agreed and the addon's choice
+-- between them never mattered. The harness supplied the answer the code was
+-- supposed to look up. So these cases make them DISAGREE, which is the only way
+-- the question gets asked at all.
+--------------------------------------------------------------------------------
+
+local VOIDSCAR = 585
+
+case("the dungeon comes from the API, not from the event payload", function()
+	local game, PS = harness.load()
+
+	game.keystoneLevel = 10
+	game.activeMapID = VOIDSCAR
+	game.challengeActive = true
+
+	-- The payload carries something that is not a mapChallengeModeID. Whether the
+	-- real client sends nil or an id from another space, the addon must not be
+	-- reading it: 2664 is not in the pool at all.
+	PS.Events:Handle("CHALLENGE_MODE_START", 2664)
+
+	check(PS.Run.mapID == VOIDSCAR,
+		"the run is on 585, got " .. tostring(PS.Run.mapID))
+	check(said(game, "Pacing Voidscar Arena +10"),
+		"paces the real dungeon\n" .. transcript(game))
+	check(not said(game, "No published pace"),
+		"does not report a covered dungeon as uncovered\n" .. transcript(game))
+end)
+
+case("a payload of nil is not the dungeon either", function()
+	local game, PS = harness.load()
+
+	game.keystoneLevel = 10
+	game.activeMapID = VOIDSCAR
+	game.challengeActive = true
+
+	PS.Events:Handle("CHALLENGE_MODE_START")
+
+	check(said(game, "Pacing Voidscar Arena +10"),
+		"an absent payload costs nothing\n" .. transcript(game))
+	check(not said(game, "map nil"),
+		"never prints a map id it failed to read\n" .. transcript(game))
+end)
+
+case("a dungeon the client has not published yet waits, like the level does", function()
+	local game, PS = harness.load()
+
+	-- Both halves unreadable at the instant the event lands, which is the state
+	-- the level retry was built for. The map id now gets the same treatment.
+	game.keystoneLevel = 0
+	game.activeMapID = nil
+	game.challengeActive = true
+
+	PS.Events:Handle("CHALLENGE_MODE_START", 2664)
+
+	check(not said(game, "No published pace"),
+		"says nothing about a pool it could not look up\n" .. transcript(game))
+	check(PS.Run.active, "the clock still started")
+
+	game.activeMapID = VOIDSCAR
+	game.keystoneLevel = 10
+	game:advance(0.5)
+
+	check(said(game, "Pacing Voidscar Arena +10"),
+		"announces once the client catches up\n" .. transcript(game))
+end)
+
+case("a dungeon that never becomes readable says so, and says which half", function()
+	local game, PS = harness.load()
+
+	game.keystoneLevel = 10
+	game.activeMapID = nil
+	game.challengeActive = true
+
+	PS.Events:Handle("CHALLENGE_MODE_START", 2664)
+	game:advance(30)
+
+	check(said(game, "Could not read which dungeon this is"),
+		"names the fact that was missing\n" .. transcript(game))
+	check(not said(game, "No published pace"),
+		"does not blame the pool for a read it could not make\n" .. transcript(game))
+end)
+
+--------------------------------------------------------------------------------
 -- The test bar. It exists so the layout can be judged outside a key, so what
 -- matters is that it goes through the SAME Refresh a real run does - a preview
 -- with its own drawing code would agree with the real bar only until one of

@@ -105,19 +105,24 @@ function Pace:OnRunStarted(run)
 		return
 	end
 
+	-- Run only calls this with both facts in hand; the guard is here because the
+	-- alternative failure is silent and confident. Without them the only honest
+	-- sentences below are lies - "no pace published for +0", or "no pace for this
+	-- dungeon (map nil)" - naming a pool that could never exist, on a key whose
+	-- real dungeon and level may be fully covered.
+	--
+	-- This runs BEFORE the dungeon lookup on purpose. Asking the pool about a map
+	-- id we failed to read gets an honest "not in the pool" back, and reporting
+	-- that is how an unreadable key came out as an uncovered one.
+	if not run.mapID or not run.level then
+		self:OnRunUnreadable(run)
+		return
+	end
+
 	local dungeon = a.GetDungeonName(run.mapID)
 	if not dungeon then
 		PS.Announcer:Local(("No published pace for this dungeon yet (map %s).")
 			:format(tostring(run.mapID)))
-		return
-	end
-
-	-- Run only calls this with a level in hand; the guard is here because the
-	-- alternative failure is silent and confident. Without a level the only
-	-- honest sentences below are lies - "no pace published for +0" names a pool
-	-- that could never exist, on a key whose real level may be fully covered.
-	if not run.level then
-		self:OnLevelUnknown(run)
 		return
 	end
 
@@ -145,16 +150,25 @@ end
 ---fault in this addon's reading of the game. Collapsing them is what let a
 ---covered +10 be reported as an uncovered key.
 ---@param run table
-function Pace:OnLevelUnknown(run)
+function Pace:OnRunUnreadable(run)
 	if not PS.Config.announceStart then
 		return
 	end
 
-	local a = api()
-	local dungeon = (a and a.GetDungeonName(run.mapID)) or ("map " .. tostring(run.mapID))
+	-- Name the fact that was missing. "Could not read the keystone level" over a
+	-- run whose DUNGEON was the unreadable half sends the reader looking in the
+	-- wrong place, which is the same category of harm as the wrong pace.
+	local missing
+	if not run.mapID and not run.level then
+		missing = "which dungeon or keystone level this is"
+	elseif not run.mapID then
+		missing = "which dungeon this is"
+	else
+		missing = "the keystone level"
+	end
 
-	PS.Announcer:Local(("Could not read the keystone level for %s, so splits will be called out "
-		.. "with nothing to compare against. /reload fixes it."):format(dungeon))
+	PS.Announcer:Local(("Could not read %s, so splits will be called out with nothing "
+		.. "to compare against. /reload fixes it."):format(missing))
 end
 
 ---A boss died. Work out whether there is anything to say, and say it.
