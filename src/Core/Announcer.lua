@@ -55,6 +55,7 @@ local REPEAT_WINDOW = 2.0
 ---@return string|nil channel
 local function activeChannel()
 	if not PS.Config.announceEnabled then
+		PeaversCommons.Utils.Debug(PS, "announcements are off - keeping it local")
 		return nil
 	end
 
@@ -66,12 +67,18 @@ local function activeChannel()
 	end
 
 	if channel == "self" then
+		PeaversCommons.Utils.Debug(PS, "channel is 'self' - keeping it local")
 		return nil
 	end
 
 	-- A keystone is a five-man, so this is only false while testing alone. It is
 	-- also what stops SendChatMessage erroring outside a group.
+	--
+	-- Note this is the HOME category: an instance group (dungeon finder) answers
+	-- false here and the split correctly falls back to the player's own frame,
+	-- rather than being sent to a PARTY channel that group does not use.
 	if not IsInGroup() then
+		PeaversCommons.Utils.Debug(PS, "not in a party - keeping it local")
 		return nil
 	end
 
@@ -110,7 +117,14 @@ function Announcer:Split(message)
 	if not ok then
 		PeaversCommons.Utils.Debug(PS, ("SendChatMessage failed: %s"):format(tostring(err)))
 		self:Local(message)
+		return
 	end
+
+	-- Logged on the SUCCESS path on purpose. A send that returns cleanly and
+	-- delivers nothing looks exactly like a split that was never generated, and
+	-- the two are fixed in completely different places - so the trace has to
+	-- distinguish "we never got here" from "we called it and the game took it".
+	PeaversCommons.Utils.Debug(PS, ("sent to %s: %s"):format(channel, message))
 end
 
 ---Forget the repeat window. Called when a run starts, so two runs of the same
