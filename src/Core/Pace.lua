@@ -127,7 +127,15 @@ function Pace:OnRunStarted(run)
 	end
 
 	if a.GetBosses(run.mapID, run.level) then
-		local suffix = run.recovered and " Reloaded mid-run, so the clock is the game's own." or ""
+		-- Three states, not two. A recovered run that has since adopted a peer's
+		-- baseline is back on an exact clock, and repeating the reload caveat
+		-- there would be a warning about a problem that has been solved.
+		local suffix = ""
+		if run.clockSource then
+			suffix = (" Clock synced from %s."):format(run.clockSource)
+		elseif run.recovered then
+			suffix = " Reloaded mid-run, so the clock is the game's own."
+		end
 		PS.Announcer:Local(("Pacing %s +%d against the published %s pool.%s")
 			:format(dungeon, run.level or 0, tostring(a.GetPartition() or "?"), suffix))
 		return

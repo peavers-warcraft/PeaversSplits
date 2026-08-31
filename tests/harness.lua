@@ -122,6 +122,13 @@ function harness.stubGame()
 		challengeActive = false,
 		worldTimers = {},
 		inGroup = false,
+		addonSent = {},  -- C_ChatInfo.SendAddonMessage, i.e. what the wire carries
+		prefixes = {},   -- what the client agreed to receive
+		latency = 0,     -- world latency in ms; 0 keeps split arithmetic exact
+		playerName = "Solo",
+		realmName = "Ravencrest",
+		playerFullName = "Solo-Ravencrest",
+		criteria = {},   -- C_ScenarioInfo.GetCriteriaInfo, by index
 	}
 
 	_G.UIParent = newFrame()
@@ -133,6 +140,43 @@ function harness.stubGame()
 	end
 
 	_G.Enum = { WorldElapsedTimerTypes = { ChallengeMode = 1, ProvingGround = 2 } }
+
+	-- WoW's table-clearing global. Not optional: Sync wipes its roster on every
+	-- run start, before any of its "is anybody there" guards can bail out.
+	_G.wipe = function(t)
+		for key in pairs(t) do
+			t[key] = nil
+		end
+		return t
+	end
+
+	_G.UnitFullName = function() return game.playerName, game.realmName end
+	_G.GetNormalizedRealmName = function() return game.realmName end
+	_G.UnitIsUnit = function(unit) return unit == game.playerFullName end
+	-- bandwidthIn, bandwidthOut, latencyHome, latencyWorld(ms)
+	_G.GetNetStats = function() return 0, 0, game.latency, game.latency end
+
+	_G.C_ChatInfo = {
+		RegisterAddonMessagePrefix = function(prefix)
+			game.prefixes[prefix] = true
+			return true
+		end,
+		SendAddonMessage = function(prefix, text, channel)
+			game.addonSent[#game.addonSent + 1] =
+				{ prefix = prefix, text = text, channel = channel }
+			return true
+		end,
+	}
+
+	-- The keystone's objective list, which is where boss kills actually come
+	-- from. Answers nil past the end exactly as the real one does, so a consumer
+	-- that scans a fixed range has to cope with the same thing it copes with in
+	-- game rather than with a tidier version of it.
+	_G.C_ScenarioInfo = {
+		GetCriteriaInfo = function(index)
+			return game.criteria[index]
+		end,
+	}
 
 	_G.C_Timer = {
 		After = function(delay, fn)
@@ -157,7 +201,19 @@ function harness.stubGame()
 		GetMapUIInfo = function() return "Stub", nil, 1800 end,
 	}
 
-	_G.GetWorldElapsedTimers = function() return table.unpack(game.worldTimers) end
+	---The real one returns the timer IDS as multiple return values - not a table,
+	---and not the timers themselves. This stub used to unpack the timer objects,
+	---which is a different shape from the game's in two ways at once, and it let a
+	---consumer that treated the result as a table pass here while returning nil in
+	---every real dungeon. The stub is the contract; it has to be the game's.
+	_G.GetWorldElapsedTimers = function()
+		local ids = {}
+		for index = 1, #game.worldTimers do
+			ids[index] = index
+		end
+		return table.unpack(ids)
+	end
+
 	_G.GetWorldElapsedTime = function(timerID)
 		local timer = game.worldTimers[timerID]
 		return timerID, timer and timer.elapsed or 0, timer and timer.type or 0
@@ -302,6 +358,256 @@ function harness.load()
 	commons._ready()
 
 	return game, PS
+end
+
+--------------------------------------------------------------------------------
+-- Two clients on one wire
+--
+-- Sync's whole job is agreement between machines, and a single-client test can
+-- only ever check that this addon agrees with itself. That is the exact trap
+-- this file has already been caught by twice: the harness supplied the answer
+-- and then confirmed it. So the sync tests run TWO real loads of the addon and
+-- pass real addon messages between them.
+--
+-- The one thing that must not be shared is the clock epoch. `GetTime()` counts
+-- from when each client started, so the two are deliberately given different
+-- epochs over one shared wall clock - if any of the protocol quietly assumed a
+-- common zero, these tests would be the thing that noticed.
+--------------------------------------------------------------------------------
+
+---Load one addon instance against a freshly stubbed game.
+---@param name string `Name-Realm`
+---@param epoch number seconds this client had been running at wall time zero
+---@return table client
+local function loadClient(name, epoch)
+	local splitsRoot, dataRoot = roots()
+
+	local game = harness.stubGame()
+	local commons = harness.stubCommons(game)
+
+	local short, realm = name:match("^([^%-]+)%-(.+)$")
+	game.playerName, game.realmName, game.playerFullName = short, realm, name
+	game.inGroup = true
+
+	harness.loadAddon(dataRoot, "PeaversSplitsData")
+	local PS = harness.loadAddon(splitsRoot, "PeaversSplits")
+
+	assert(commons._ready, "PeaversSplits never registered a bootstrap")
+	commons._ready()
+
+	return {
+		name = name,
+		shortName = short,
+		realm = realm,
+		epoch = epoch,
+		game = game,
+		commons = commons,
+		PS = PS,
+	}
+end
+
+---A completed "defeat this boss" objective, `ago` seconds after the fact.
+---@param encounterID number DungeonEncounterID
+---@param name string
+---@param ago number|nil seconds since the boss died, as the game reports it
+---@return table criteriaInfo
+function harness.bossCriterion(encounterID, name, ago)
+	return {
+		criteriaType = 165,   -- Enum.CriteriaType.DefeatDungeonEncounter
+		assetID = encounterID,
+		description = name,
+		completed = true,
+		elapsed = ago or 0,
+	}
+end
+
+---An objective that is NOT a boss - the enemy-forces bar, which is what most
+---SCENARIO_CRITERIA_UPDATE events are actually about.
+---@return table criteriaInfo
+function harness.forcesCriterion(percent)
+	return {
+		criteriaType = 46,
+		assetID = 0,
+		description = "Enemy Forces",
+		isWeightedProgress = true,
+		quantityString = tostring(percent) .. "%",
+		completed = percent >= 100,
+		elapsed = 0,
+	}
+end
+
+---Load two clients and wire them together.
+---
+---Both are loaded first, THEN the routing globals are installed - because Lua
+---resolves globals at call time, so whichever stub was installed last would
+---otherwise serve both clients and the test would be timing one machine twice.
+---@return table wire, table a, table b
+function harness.loadPair()
+	local bus = { wall = 1000.0, outbox = {} }
+
+	-- Different epochs, neither of them zero. A protocol that leaked a raw
+	-- GetTime() across the wire would be off by 4863 seconds here.
+	local a = loadClient("Alpha-Ravencrest", 5000)
+	local b = loadClient("Bravo-Ravencrest", 137)
+	local clients = { a, b }
+
+	local activeClient = a
+
+	local function syncClocks()
+		for _, client in ipairs(clients) do
+			client.game.now = bus.wall + client.epoch
+		end
+	end
+	syncClocks()
+
+	_G.GetTime = function() return activeClient.game.now end
+	_G.IsInGroup = function() return activeClient.game.inGroup end
+	_G.UnitFullName = function() return activeClient.shortName, activeClient.realm end
+	_G.GetNormalizedRealmName = function() return activeClient.realm end
+	_G.UnitIsUnit = function(unit) return unit == activeClient.name end
+	_G.GetNetStats = function()
+		local latency = activeClient.game.latency
+		return 0, 0, latency, latency
+	end
+
+	_G.SendChatMessage = function(message, channel)
+		local sent = activeClient.game.sent
+		sent[#sent + 1] = { message = message, channel = channel }
+	end
+
+	_G.C_Timer = {
+		After = function(delay, fn)
+			local timers = activeClient.game.timers
+			timers[#timers + 1] = { at = activeClient.game.now + delay, fn = fn }
+		end,
+	}
+
+	_G.C_ChatInfo = {
+		RegisterAddonMessagePrefix = function(prefix)
+			activeClient.game.prefixes[prefix] = true
+			return true
+		end,
+		SendAddonMessage = function(prefix, text, channel)
+			local game = activeClient.game
+			game.addonSent[#game.addonSent + 1] =
+				{ prefix = prefix, text = text, channel = channel }
+			-- PARTY loops back to its own sender in the real client, so it goes on
+			-- the bus for everyone including us. Filtering self is the addon's job
+			-- and must be exercised, not quietly done here.
+			bus.outbox[#bus.outbox + 1] =
+				{ prefix = prefix, text = text, channel = channel, sender = activeClient.name }
+			return true
+		end,
+	}
+
+	_G.C_ScenarioInfo = {
+		GetCriteriaInfo = function(index) return activeClient.game.criteria[index] end,
+	}
+
+	_G.C_ChallengeMode = {
+		GetActiveKeystoneInfo = function() return activeClient.game.keystoneLevel, {}, true end,
+		GetActiveChallengeMapID = function() return activeClient.game.activeMapID end,
+		IsChallengeModeActive = function() return activeClient.game.challengeActive end,
+		GetMapUIInfo = function() return "Stub", nil, 1800 end,
+	}
+
+	_G.GetWorldElapsedTimers = function()
+		local ids = {}
+		for index = 1, #activeClient.game.worldTimers do
+			ids[index] = index
+		end
+		return table.unpack(ids)
+	end
+
+	_G.GetWorldElapsedTime = function(timerID)
+		local timer = activeClient.game.worldTimers[timerID]
+		return timerID, timer and timer.elapsed or 0, timer and timer.type or 0
+	end
+
+	local wire = { bus = bus, clients = clients }
+
+	---Run `fn` as though we were sitting at `client`'s keyboard.
+	function wire:as(client, fn)
+		local previous = activeClient
+		activeClient = client
+		local ok, err = pcall(fn)
+		activeClient = previous
+		if not ok then
+			error(err, 0)
+		end
+	end
+
+	---Hand every queued addon message to every client, sender included.
+	function wire:deliver()
+		local guard = 0
+		while #bus.outbox > 0 do
+			guard = guard + 1
+			assert(guard < 1000, "addon messages never stopped bouncing")
+
+			local message = table.remove(bus.outbox, 1)
+			for _, client in ipairs(clients) do
+				self:as(client, function()
+					client.PS.Events:Handle("CHAT_MSG_ADDON",
+						message.prefix, message.text, message.channel, message.sender)
+				end)
+			end
+		end
+	end
+
+	---Move the shared wall clock forward, running each client's timers as they
+	---come due and delivering whatever they say. Time moves TO each timer for the
+	---same reason `game:advance` does it: a retry that reschedules itself has to
+	---see the clock as it was when it ran.
+	---@param seconds number
+	function wire:advance(seconds)
+		local target = bus.wall + seconds
+		local guard = 0
+
+		self:deliver()
+
+		while true do
+			guard = guard + 1
+			assert(guard < 10000, "timer queue never drained")
+
+			local dueClient, dueIndex, dueAt
+			for _, client in ipairs(clients) do
+				for index, timer in ipairs(client.game.timers) do
+					local wallAt = timer.at - client.epoch
+					if wallAt <= target and (not dueAt or wallAt < dueAt) then
+						dueClient, dueIndex, dueAt = client, index, wallAt
+					end
+				end
+			end
+
+			if not dueClient then
+				break
+			end
+
+			local timer = table.remove(dueClient.game.timers, dueIndex)
+			bus.wall = math.max(bus.wall, dueAt)
+			syncClocks()
+			self:as(dueClient, timer.fn)
+			self:deliver()
+		end
+
+		bus.wall = target
+		syncClocks()
+		self:deliver()
+	end
+
+	---Put a client into a key that started `elapsed` seconds ago, as the client
+	---itself would see it at CHALLENGE_MODE_START.
+	function wire:start(client, mapID, level)
+		client.game.activeMapID = mapID
+		client.game.keystoneLevel = level
+		client.game.challengeActive = true
+		self:as(client, function()
+			client.PS.Events:Handle("CHALLENGE_MODE_START", mapID)
+		end)
+		self:deliver()
+	end
+
+	return wire, a, b
 end
 
 return harness

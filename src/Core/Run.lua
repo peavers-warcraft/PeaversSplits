@@ -49,11 +49,34 @@ local CHALLENGE_MODE_TIMER =
 local LEVEL_RETRY_DELAY = 0.25
 local LEVEL_RETRY_LIMIT = 20
 
+-- `Enum.CriteriaType.DefeatDungeonEncounter`. When a keystone objective carries
+-- this type its `assetID` is the DungeonEncounterID - the SAME id the published
+-- pool is keyed by, which is what makes the scenario objectives usable as a
+-- boss-kill source at all rather than only as a progress display.
+local CRITERIA_DEFEAT_ENCOUNTER = 165
+
+-- A keystone has four or five objectives. Ten is well clear of that and costs
+-- nothing: the scan is a handful of table reads against an API already in
+-- memory, which is why Blizzard's own tracker and every M+ addon do the same.
+local MAX_CRITERIA = 10
+
+-- How long to keep trying to adopt a key that was already running when the
+-- addon loaded. `PLAYER_ENTERING_WORLD` fires when the loading screen ends, and
+-- the challenge-mode state and the world timer are pushed by the SERVER some
+-- moments after that - so the first look almost always finds nothing, and a
+-- one-shot attempt is a coin toss. Ten seconds of asking covers the gap without
+-- ever being noticed; the addon that lands on the first attempt just stops.
+local RECOVER_RETRY_DELAY = 0.5
+local RECOVER_RETRY_LIMIT = 20
+
 Run.active = false
 Run.mapID = nil
 Run.level = nil
 Run.startedAt = nil
 Run.recovered = false
+-- Set when this client took its baseline from a peer instead of from its
+-- own CHALLENGE_MODE_START. Nil means the clock is our own, either way.
+Run.clockSource = nil
 Run.killed = {}
 Run.order = 0
 
@@ -61,6 +84,11 @@ Run.order = 0
 -- timer left over from the previous key cannot write a level into this one. A
 -- reset-and-restart is exactly the sequence that produces two in flight at once.
 Run.token = 0
+
+-- The same idea for the recovery retry, which is a separate loop with a
+-- separate lifetime: it runs while there is NO run, so it cannot lean on
+-- `token`, which only moves when one starts or stops.
+Run.recoverToken = 0
 
 --------------------------------------------------------------------------------
 -- The keystone level, which is not readable the instant the run starts
@@ -134,18 +162,22 @@ end
 ---Found by TYPE rather than by index: `GetWorldElapsedTime(1)` happens to be the
 ---keystone timer most of the time, and "most of the time" is how an addon ends
 ---up reading a proving-ground clock in a dungeon.
+---
+---**`GetWorldElapsedTimers` returns the timer ids as multiple return values, not
+---as a table**, so it has to be collected with `{ ... }`. Assigned to a single
+---local it yields the first id - a number - and the `type(timers) ~= "table"`
+---guard that used to stand here then rejected it every single time. That made
+---this function return nil unconditionally, which is not a subtle degradation:
+---`Run:Recover` gives up when it has no clock, so a `/reload` inside a keystone
+---left the run untracked for the rest of the key, with the bar hidden and
+---`/ps` reporting "no keystone running" while one plainly was.
 ---@return number|nil elapsed
 local function worldElapsed()
 	if type(GetWorldElapsedTimers) ~= "function" or type(GetWorldElapsedTime) ~= "function" then
 		return nil
 	end
 
-	local timers = GetWorldElapsedTimers()
-	if type(timers) ~= "table" then
-		return nil
-	end
-
-	for _, timerID in ipairs(timers) do
+	for _, timerID in ipairs({ GetWorldElapsedTimers() }) do
 		local ok, _, elapsed, timerType = pcall(GetWorldElapsedTime, timerID)
 		if ok and timerType == CHALLENGE_MODE_TIMER and type(elapsed) == "number" then
 			return elapsed
@@ -187,9 +219,13 @@ function Run:Start(eventMapID)
 	self.level = activeLevel()
 	self.startedAt = GetTime()
 	self.recovered = false
+	self.clockSource = nil
 	self.killed = {}
 	self.order = 0
 	self.token = self.token + 1
+	-- Orphans any recovery retry still in flight. The key started for real, so
+	-- there is nothing left to adopt.
+	self.recoverToken = self.recoverToken + 1
 
 	PeaversCommons.Utils.Debug(PS, ("run started: map %s +%s (event payload: %s)")
 		:format(tostring(self.mapID), tostring(self.level), tostring(eventMapID)))
@@ -202,6 +238,7 @@ function Run:Start(eventMapID)
 		self:ResolveRun(self.token, 1)
 	end
 
+	PS.Sync:OnRunStarted()
 	PS.PaceBar:Update()
 end
 
@@ -230,6 +267,12 @@ function Run:ResolveRun(token, attempt)
 		PeaversCommons.Utils.Debug(PS, ("run resolved to map %d +%d on attempt %d")
 			:format(self.mapID, self.level, attempt))
 		PS.Pace:OnRunStarted(self)
+
+		-- Say so again now the key can be named. The claim sent before this point
+		-- carried a zero map id, which every peer correctly threw away - so without
+		-- this the group stays unsynced until the next heartbeat, for no reason
+		-- other than the client having been slow to publish the keystone.
+		PS.Sync:Broadcast()
 		PS.PaceBar:Update()
 		return
 	end
@@ -275,10 +318,12 @@ function Run:Recover()
 	-- counts, which is the ambiguity this whole file exists to avoid.
 	self.startedAt = nil
 	self.recovered = true
+	self.clockSource = nil
 	self.killed = {}
 
-	-- Bosses already down before we loaded are unknown, so the ordinal cannot be
-	-- trusted either. Zero means "we do not know how many came before".
+	-- Filled in by the objective scan below, which knows exactly which bosses are
+	-- already down - so unlike the clock, the kill list survives a reload intact
+	-- and the ordinal keeps counting from the right number.
 	self.order = 0
 
 	PeaversCommons.Utils.Debug(PS, ("run recovered at %.1fs: map %s +%s")
@@ -292,7 +337,59 @@ function Run:Recover()
 		self:ResolveRun(self.token, 1)
 	end
 
+	-- Adopt the bosses that died before we loaded, WITHOUT announcing them. The
+	-- group killed those minutes ago and does not need them called out again;
+	-- what this buys is a correct ordinal and a correct "N bosses down".
+	self:ScanObjectives(false)
+
+	-- Announce ourselves to the group. This is the moment the sync is FOR: a
+	-- client that reloaded holds the weaker clock, and anybody who did not
+	-- reload can hand back the exact one.
+	PS.Sync:OnRunStarted()
+
 	return true
+end
+
+---Try to adopt an already-running key, and keep trying for a short while.
+---
+---This is what `PLAYER_ENTERING_WORLD` and `WORLD_STATE_TIMER_START` both call,
+---because neither one on its own is reliably the moment the facts exist.
+---`Recover` needs three things from the server - the challenge-mode flag, the
+---world timer, and the keystone - and after a `/reload` they arrive over the
+---following second or so, in no guaranteed order and all of them after the
+---loading screen ends. A single look at world entry is therefore a race that
+---the addon usually loses, and losing it silently costs the rest of the key.
+---
+---Idempotent on purpose: it gives up the moment a run is active, so being
+---called from two events, or from the same event twice, adopts one run.
+function Run:BeginRecovery()
+	self.recoverToken = self.recoverToken + 1
+	self:TryRecover(self.recoverToken, 1)
+end
+
+---@param token number the recovery attempt this retry belongs to
+---@param attempt number
+function Run:TryRecover(token, attempt)
+	-- A run started, stopped, or was adopted by another attempt while this one
+	-- was waiting. Either way there is nothing here to do.
+	if self.active or self.recoverToken ~= token then
+		return
+	end
+
+	if self:Recover() then
+		return
+	end
+
+	if attempt >= RECOVER_RETRY_LIMIT then
+		-- Not an error. The overwhelmingly common case is world entry with no
+		-- keystone anywhere in sight, which is every loading screen in the game.
+		PeaversCommons.Utils.Debug(PS, "no keystone to recover")
+		return
+	end
+
+	C_Timer.After(RECOVER_RETRY_DELAY, function()
+		self:TryRecover(token, attempt + 1)
+	end)
 end
 
 ---Stop tracking. Called on completion, on leaving the instance, and on reset.
@@ -306,28 +403,130 @@ function Run:Stop()
 	self.level = nil
 	self.startedAt = nil
 	self.recovered = false
+	self.clockSource = nil
 	self.killed = {}
 	self.order = 0
 	-- Orphans any level retry still in flight, so it cannot announce into the
-	-- next run - or into no run at all.
+	-- next run - or into no run at all. The recovery retry is orphaned for the
+	-- same reason: stopping is a decision, and a retry from before it must not
+	-- quietly undo one.
 	self.token = self.token + 1
+	self.recoverToken = self.recoverToken + 1
 
+	PS.Sync:OnRunStopped()
 	PS.PaceBar:Update()
 end
 
 --------------------------------------------------------------------------------
--- Boss kills
+-- Where a boss kill actually comes from
+--
+-- **Not `ENCOUNTER_END`, or not only it.** That event is the obvious source and
+-- it is not a dependable one inside a keystone: this addon shipped reading it
+-- alone, and the result was a run that announced its finish line correctly and
+-- said nothing whatsoever at any of the bosses on the way there.
+--
+-- The dependable source is the keystone's own objective list. A boss is an
+-- objective with `criteriaType` 165, its `assetID` IS the DungeonEncounterID,
+-- and `completed` is the game's own answer to whether it is down - the same
+-- state the player is reading off their objective tracker. WarpDeplete takes
+-- boss times this way and uses ENCOUNTER_END for nothing but resetting its pull
+-- tracker; RaiderIO watches the same criteria updates. Following them is not
+-- cargo-culting: the objective list is what the server actually maintains for a
+-- keystone, and the encounter event is not.
+--
+-- `ENCOUNTER_END` is kept as a second door, because when it does fire it fires
+-- at the instant of the kill. Both doors land in `RecordKill`, which dedupes on
+-- the encounter id, so whichever arrives first wins and the other is ignored.
 --------------------------------------------------------------------------------
 
 ---Record a boss dying, and hand the split to Pace.
 ---
----Only a kill counts. `ENCOUNTER_END` also fires on a wipe, with `success` 0,
----and a wipe has no split - the boss has not been reached yet, it has been
----failed at. Counting one would put a time against a boss that is still alive.
+---Guarded against being told twice about the same boss - by two events, or by
+---one event twice - which would otherwise double-post into somebody's party
+---chat and read as the group having killed it twice.
+---@param encounterID number DungeonEncounterID
+---@param encounterName string|nil the boss's name, as this client spells it
+---@param elapsed number|nil seconds into the run when it died
+---@param announce boolean whether to say so, or only to record it
+---@return boolean recorded
+function Run:RecordKill(encounterID, encounterName, elapsed, announce)
+	if type(encounterID) ~= "number" or self.killed[encounterID] then
+		return false
+	end
+
+	if not elapsed or elapsed < 0 then
+		PeaversCommons.Utils.Debug(PS, "no clock available - cannot split")
+		return false
+	end
+
+	self.killed[encounterID] = elapsed
+	self.order = self.order + 1
+
+	-- Last chance to learn the level. If the retries above ran out - or the run
+	-- was recovered before the client had the keystone - a boss dying is proof
+	-- the run is well underway, so ask once more rather than spending the rest of
+	-- the key comparing against nothing.
+	if not self.level then
+		self.level = activeLevel()
+	end
+
+	if announce then
+		PS.Pace:OnBossKilled(self, encounterID, encounterName, elapsed, self.order)
+	end
+
+	PS.PaceBar:Update()
+	return true
+end
+
+---Read the keystone's objective list and record every boss that has gone down.
+---@param announce boolean false to adopt the current state silently, which is
+---what a recovered run needs: the bosses killed before the reload are already
+---in the objective list, and calling them out now would post a burst of stale
+---splits into party chat minutes after the group killed them.
+function Run:ScanObjectives(announce)
+	if not self.active then
+		return
+	end
+
+	if not (C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo) then
+		return
+	end
+
+	local elapsed = self:GetElapsed()
+	if not elapsed then
+		return
+	end
+
+	for index = 1, MAX_CRITERIA do
+		local ok, info = pcall(C_ScenarioInfo.GetCriteriaInfo, index)
+
+		if ok and type(info) == "table"
+			and info.criteriaType == CRITERIA_DEFEAT_ENCOUNTER
+			and info.completed
+			and not self.killed[info.assetID] then
+
+			-- `elapsed` on a completed criterion is how long ago it completed, so
+			-- this is the split ITSELF rather than the moment we happened to look.
+			-- That matters on the scan after a reload, where "now" would be minutes
+			-- wrong, and it is no worse than ENCOUNTER_END even live.
+			local at = elapsed - (info.elapsed or 0)
+
+			-- A figure outside the run cannot be a split in it. Falling back to now
+			-- keeps the boss recorded rather than dropping it over a bad offset.
+			if at < 0 or at > elapsed then
+				at = elapsed
+			end
+
+			self:RecordKill(info.assetID, info.description, at, announce)
+		end
+	end
+end
+
+---`ENCOUNTER_END`, which fires at the instant of the kill when it fires at all.
 ---
----Guarded against firing twice for the same boss in one run, which costs
----nothing to defend against and would otherwise double-post into somebody's
----party chat.
+---Only a kill counts. The event also fires on a wipe, with `success` 0, and a
+---wipe has no split - the boss has not been reached yet, it has been failed at.
+---Counting one would put a time against a boss that is still alive.
 ---@param encounterID number DungeonEncounterID
 ---@param encounterName string the boss's name, as this client spells it
 ---@param success boolean|number whether the boss died
@@ -343,28 +542,11 @@ function Run:OnEncounterEnd(encounterID, encounterName, success)
 		return
 	end
 
-	if self.killed[encounterID] then
-		PeaversCommons.Utils.Debug(PS, ("duplicate ENCOUNTER_END for %s - ignored"):format(tostring(encounterID)))
-		return
-	end
+	self:RecordKill(encounterID, encounterName, self:GetElapsed(), true)
+end
 
-	local elapsed = self:GetElapsed()
-	if not elapsed then
-		PeaversCommons.Utils.Debug(PS, "no clock available - cannot split")
-		return
-	end
-
-	self.killed[encounterID] = elapsed
-	self.order = self.order + 1
-
-	-- Last chance to learn the level. If the retries above ran out - or the run
-	-- was recovered before the client had the keystone - a boss dying is proof
-	-- the run is well underway, so ask once more rather than spending the rest of
-	-- the key comparing against nothing.
-	if not self.level then
-		self.level = activeLevel()
-	end
-
-	PS.Pace:OnBossKilled(self, encounterID, encounterName, elapsed, self.order)
-	PS.PaceBar:Update()
+---The objective list changed. The usual cause is the enemy-forces count ticking
+---over, which the scan ignores; occasionally it is a boss dying, which it does not.
+function Run:OnObjectivesChanged()
+	self:ScanObjectives(true)
 end

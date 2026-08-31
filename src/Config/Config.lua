@@ -29,6 +29,13 @@ local PS_DEFAULTS = {
 	announceEnabled = true,
 	channel = "PARTY",
 
+	-- Agree with the other copies of this addon in the group: one clock, and
+	-- one of us doing the talking. On by default because the alternative is
+	-- what shipped before it - three installs contradicting each other in
+	-- party chat, which reads as the addon being broken. Turned off, this
+	-- client times and announces its own run regardless of who else has it.
+	syncEnabled = true,
+
 	-- What rides along with the delta.
 	--
 	-- The spread is on by default and the reasoning is the same as the website's:

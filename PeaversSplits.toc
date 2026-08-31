@@ -22,6 +22,7 @@ src\Config\ConfigUI.lua
 src\Core\Announcer.lua
 src\Core\Pace.lua
 src\Core\Run.lua
+src\Core\Sync.lua
 src\Core\Events.lua
 
 src\UI\PaceBar.lua

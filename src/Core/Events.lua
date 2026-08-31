@@ -12,6 +12,16 @@
 -- most likely to be fiddling with addons. So every world entry asks the game
 -- whether a keystone is already running and adopts it if so.
 --
+-- ## Why WORLD_STATE_TIMER_START is here too
+--
+-- Because `PLAYER_ENTERING_WORLD` is too early to be trusted on its own. It
+-- fires when the loading screen ends; the keystone timer arrives afterwards,
+-- pushed by the server, and `WORLD_STATE_TIMER_START` is the event that says so.
+-- Asking at both moments - and, via `Run:BeginRecovery`, for a few seconds
+-- after either - is what Blizzard's own tracker and every other keystone addon
+-- do, and for the same reason. Adopting twice is not a risk: recovery is
+-- idempotent and stops dead once a run is active.
+--
 -- ## Why CHALLENGE_MODE_RESET stops the run
 --
 -- The group can reset a key and start again from the top. Without this the
@@ -39,7 +49,10 @@ function Events:Initialize()
 	frame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 	frame:RegisterEvent("CHALLENGE_MODE_RESET")
 	frame:RegisterEvent("ENCOUNTER_END")
+	frame:RegisterEvent("SCENARIO_CRITERIA_UPDATE")
 	frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	frame:RegisterEvent("WORLD_STATE_TIMER_START")
+	frame:RegisterEvent("CHAT_MSG_ADDON")
 
 	frame:SetScript("OnEvent", function(_, event, ...)
 		Events:Handle(event, ...)
@@ -54,6 +67,12 @@ function Events:Handle(event, ...)
 		local mapID = ...
 		PS.Announcer:Reset()
 		PS.Run:Start(mapID)
+
+	elseif event == "SCENARIO_CRITERIA_UPDATE" then
+		-- The keystone's own objective list changed. This is the PRIMARY boss-kill
+		-- source, not a backup - see the section header in Run.lua. It fires often
+		-- and is nearly always the enemy-forces count moving, which the scan skips.
+		PS.Run:OnObjectivesChanged()
 
 	elseif event == "ENCOUNTER_END" then
 		-- encounterID, encounterName, difficultyID, groupSize, success
@@ -77,7 +96,20 @@ function Events:Handle(event, ...)
 			and C_ChallengeMode.IsChallengeModeActive()) then
 			PS.Run:Stop()
 		elseif not PS.Run.active then
-			PS.Run:Recover()
+			PS.Run:BeginRecovery()
+		end
+
+	elseif event == "CHAT_MSG_ADDON" then
+		-- prefix, text, channel, sender
+		PS.Sync:OnMessage(...)
+
+	elseif event == "WORLD_STATE_TIMER_START" then
+		-- The keystone clock just appeared. If that is because a key was already
+		-- running when we loaded, this is the earliest honest moment to adopt it.
+		-- A no-op during a normal `CHALLENGE_MODE_START`, where the run is already
+		-- active and being timed from our own clock.
+		if not PS.Run.active then
+			PS.Run:BeginRecovery()
 		end
 	end
 end

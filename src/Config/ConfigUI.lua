@@ -180,6 +180,10 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 			key = "announceFinish",
 			label = "Sum up when the key finishes",
 		},
+		{
+			key = "syncEnabled",
+			label = "Agree with other people in the group running this",
+		},
 	}
 
 	for _, option in ipairs(checkboxes) do
@@ -196,6 +200,17 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 	end
 
 	y = y - 12
+	local _, syncNoteY = AddNote(parentFrame,
+		"Everyone in the group running this addon is timing the same key on their " ..
+		"own clock, and left alone they all talk at once - and anyone who reloaded " ..
+		"is on the game's timer rather than their own, so their splits disagree " ..
+		"with everybody else's. Agreeing settles both: the group keeps one clock, " ..
+		"one of you calls the splits out, and the rest still see every split in " ..
+		"their own chat frame. Turn it off to time and announce your own run " ..
+		"regardless of who else is running it.",
+		indent, y, width)
+	y = syncNoteY - 8
+
 	local _, spreadNoteY = AddNote(parentFrame,
 		"The published pace carries the middle half of the pool as well as its " ..
 		"middle. Being forty seconds off means very little on a boss where that " ..

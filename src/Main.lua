@@ -11,6 +11,33 @@ PS.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "0.1.0"
 -- Slash commands
 --------------------------------------------------------------------------------
 
+---Who else in the group is running this, and who the group agreed should do
+---the talking. The question this answers is "why has my addon gone quiet in
+---party chat", which otherwise looks exactly like it having broken.
+local function PrintSync()
+	local Utils = PeaversCommons.Utils
+
+	if not PS.Config.syncEnabled then
+		Utils.Print(PS, "sync is off - timing and announcing this run on our own.")
+		return
+	end
+
+	local peers = 0
+	for _ in pairs(PS.Sync.peers) do
+		peers = peers + 1
+	end
+
+	if peers == 0 then
+		Utils.Print(PS, "sync on, nobody else in the group is running it.")
+		return
+	end
+
+	Utils.Print(PS, ("sync on, %d other%s running it - %s")
+		:format(peers, peers == 1 and "" or "s",
+			PS.Sync:ShouldAnnounce() and "we are announcing for the group."
+				or ("%s is announcing."):format(tostring(PS.Sync.speaker))))
+end
+
 local function PrintStatus()
 	local Utils = PeaversCommons.Utils
 	local api = PS.GetDataAPI()
@@ -28,7 +55,19 @@ local function PrintStatus()
 		Utils.Print(PS, PS.PaceBar:IsPreviewing()
 			and "no keystone running - the bar on screen is the test bar (/ps test to hide it)."
 			or "no keystone running.")
+		-- Said here too. Nothing is announced outside a key at all, so somebody
+		-- checking their settings before a run needs to see where splits WOULD go.
+		Utils.Print(PS, ("when one is, splits will go to: %s."):format(PS.Announcer:Why()))
 		return
+	end
+
+	-- Where the clock came from, which is the first thing to know when two
+	-- people in the same group are reading different numbers off this addon.
+	local clock = ""
+	if run.clockSource then
+		clock = (" (clock synced from %s)"):format(run.clockSource)
+	elseif run.recovered then
+		clock = " (recovered after a reload)"
 	end
 
 	local dungeon = api.GetDungeonName(run.mapID) or ("map " .. tostring(run.mapID))
@@ -36,7 +75,14 @@ local function PrintStatus()
 		dungeon,
 		run.level and tostring(run.level) or "? (keystone level unreadable)",
 		PS.Pace.Clock(run:GetElapsed() or 0),
-		run.recovered and " (recovered after a reload)" or ""))
+		clock))
+
+	-- Printed whether or not it is good news. Silence in party chat has five
+	-- causes and four of them are the addon behaving correctly, so the one
+	-- thing it must never do is leave the player guessing which.
+	Utils.Print(PS, ("splits are going to: %s."):format(PS.Announcer:Why()))
+
+	PrintSync()
 
 	-- Separated from "no pace published" on purpose: one is the pool being thin,
 	-- the other is this addon failing to read the game, and they are fixed by
@@ -113,6 +159,7 @@ PeaversCommons.Events:Init(addonName, function()
 	end
 
 	PS.PaceBar:Initialize()
+	PS.Sync:Initialize()
 	PS.Events:Initialize()
 
 	-- Use the centralized SettingsUI system from PeaversCommons

@@ -52,30 +52,56 @@ local lastSentAt = 0
 local REPEAT_WINDOW = 2.0
 
 ---Where a group-facing line should actually go, or nil for "nowhere".
----@return string|nil channel
+---
+---The second return is the REASON, in words, and it exists because "why is
+---nothing appearing in party chat" has five different answers that all look
+---identical from the outside - four of them working as intended. Returning the
+---reason from the same function that makes the decision is the point: a
+---diagnostic kept anywhere else would eventually describe a gate that had
+---moved. `Announcer:Why()` reads it, and `/ps` prints it.
+---@return string|nil channel, string reason
 local function activeChannel()
 	if not PS.Config.announceEnabled then
-		return nil
+		return nil, "off - 'Call out splits' is unticked in the settings"
 	end
 
 	local channel = PS.Config.channel
 	if not ALLOWED[channel] then
 		PeaversCommons.Utils.Debug(PS, ("channel %s is not allowed - keeping it local")
 			:format(tostring(channel)))
-		return nil
+		return nil, ("off - '%s' is not a channel this addon sends to"):format(tostring(channel))
 	end
 
 	if channel == "self" then
-		return nil
+		return nil, "your own chat frame - 'Where to send them' is set to Only me"
+	end
+
+	-- Somebody else in the group was elected to do the talking. Falling through
+	-- to Local is the point rather than a consolation: the player still sees
+	-- every split of their own run, and the party sees it once instead of once
+	-- per install. See Sync.lua for how the speaker is picked.
+	if not PS.Sync:ShouldAnnounce() then
+		PeaversCommons.Utils.Debug(PS, ("%s is speaking for the group"):format(
+			tostring(PS.Sync.speaker)))
+		return nil, ("your own chat frame - %s was elected to call them out for the group")
+			:format(tostring(PS.Sync.speaker))
 	end
 
 	-- A keystone is a five-man, so this is only false while testing alone. It is
 	-- also what stops SendChatMessage erroring outside a group.
 	if not IsInGroup() then
-		return nil
+		return nil, "your own chat frame - you are not in a group"
 	end
 
-	return channel
+	return channel, "party chat"
+end
+
+---Where the next split will go, in words. The answer to "why is this not in
+---party chat", which is otherwise indistinguishable from the addon being broken.
+---@return string
+function Announcer:Why()
+	local _, reason = activeChannel()
+	return reason
 end
 
 ---Print to the player's own chat frame, with the addon's prefix.
