@@ -1,8 +1,33 @@
 # PeaversSplits
 
-Calls out how far ahead or behind the pace your Mythic+ run is, at every boss,
-**while the key is still running**.
+[![AddonSentry](https://addonsentry.io/api/public/repos/peavers-warcraft/PeaversSplits/badge.svg)](https://addonsentry.io/dashboard/peavers-warcraft/PeaversSplits)
 
+A World of Warcraft addon that calls out how far ahead or behind the pace your Mythic+ run is, at every boss, **while the key is still running**.
+
+## Features
+
+<!-- peavers:features -->
+- A split called out at every boss, while the key is still running -- not a verdict at the end
+- A live bar that races the **next** boss's pace, so you watch a gap open instead of being told about it once the boss is down
+- Compared against your exact keystone level, never a neighbouring one
+- Says "inside the usual range" when a delta lands inside the middle half of the pool -- a measurement, not a verdict
+- Says plainly when your level has no published pool, and names the levels that do
+- Party chat by default, "only me" available; SAY and YELL deliberately not offered
+- One clock and one talker: group copies agree with each other instead of contradicting each other in chat
+- Recovers from a reload mid-key, and says that it has done so
+<!-- /peavers:features -->
+
+## Usage
+
+<!-- peavers:usage -->
+1. Install it and start a key -- there is nothing to configure first
+2. At the start of the run it says what it is pacing you against, or that nothing is published for your level
+3. Watch the bar for the next boss; the delta is written out in words as well as drawn
+4. Each boss death is called out in party chat with the split and the delta
+5. `/ps test` shows a test bar you can drag into place; `/ps config` opens the settings
+<!-- /peavers:usage -->
+
+<!-- peavers:custom -->
 ```
 Pacing Murder Row +10 against the published 12.1 pool.
 Kystia Manaheart down at 8:17, +0:31 vs pace, inside the usual range.
@@ -77,16 +102,8 @@ between a measurement and a verdict, and it is on by default.
 | command | what it does |
 |---|---|
 | `/ps` or `/ps status` | what is loaded, what is running, and what it is being paced against |
+| `/ps test` | show/hide the test bar, for dragging it into place |
 | `/ps config` | settings |
-
-## Settings
-
-Party chat by default, because a split is a fact about the group's run. "Only
-me" is available. **SAY and YELL are deliberately not offered** - they reach
-everyone standing nearby, none of whom installed this.
-
-Outside a group, and whenever the channel is unavailable, the line goes to your
-own chat frame instead of being dropped.
 
 ## Notes on the clock
 
@@ -98,9 +115,37 @@ in the same direction, and read as a group that got slower.
 
 Reloading mid-key is recovered from: the addon adopts the run in progress and
 falls back to the game's own keystone timer, and says that it has done so.
+<!-- /peavers:custom -->
 
-## Requires
+## Configuration
 
-- [PeaversSplitsData](https://github.com/peavers-warcraft/PeaversSplitsData) - the benchmark
-- [PeaversCommons](https://github.com/peavers-warcraft/PeaversCommons)
-- [PeaversConfig](https://github.com/peavers-warcraft/PeaversConfig)
+<!-- peavers:configuration -->
+`/ps config` (or PeaversConfig) offers: announcements on/off and the channel,
+the interquartile spread, sample size, the start-of-run and end-of-run lines,
+group sync, and the live bar (show, lock, position).
+
+Party chat is the default, because a split is a fact about the group's run.
+"Only me" is available. **SAY and YELL are deliberately not offered** - they
+reach everyone standing nearby, none of whom installed this.
+
+Outside a group, and whenever the channel is unavailable, the line goes to your
+own chat frame instead of being dropped.
+<!-- /peavers:configuration -->
+
+## Installation
+
+### Recommended: PeaversUpdater
+
+Download and install [PeaversUpdater](https://github.com/peavers-warcraft/PeaversUpdater/releases/latest), the desktop updater for the whole Peavers collection. It installs PeaversSplits together with its required dependencies and delivers updates before they reach CurseForge.
+
+### Alternative: CurseForge
+
+1. Download from [CurseForge](https://www.curseforge.com/wow/addons/peaverssplits)
+2. Ensure [PeaversSplitsData](https://www.curseforge.com/wow/addons/peaverssplitsdata) is also installed
+3. Ensure [PeaversCommons](https://www.curseforge.com/wow/addons/peaverscommons) is also installed
+4. Ensure [PeaversConfig](https://www.curseforge.com/wow/addons/peaversconfig) is also installed
+5. Enable the addon on the character selection screen
+
+---
+
+*Part of the [Peavers](https://peavers.io) addon collection · [Report an issue](https://github.com/peavers-warcraft/PeaversSplits/issues) · [Support development on Patreon](https://www.patreon.com/Peavers)*
