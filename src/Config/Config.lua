@@ -53,15 +53,25 @@ local PS_DEFAULTS = {
 	-- The end-of-run line, after CHALLENGE_MODE_COMPLETED.
 	announceFinish = true,
 
-	-- The live bar. The chat line is the record; the bar is the instrument, and
-	-- it is the half that shows a gap *opening* rather than reporting it once the
-	-- boss is already down.
+	-- The live timeline. The chat line is the record; the timeline is the
+	-- instrument, and it is the half that shows a gap *opening* rather than
+	-- reporting it once the boss is already down.
+	--
+	-- The keys still say "bar" because they were written for the bar this
+	-- replaced, and they are on disk in everybody's PeaversSplitsDB. Renaming
+	-- them would move every existing install's frame back to the middle of the
+	-- screen to buy nothing but a tidier settings file.
 	showBar = true,
 	lockBar = false,
 	barPoint = "CENTER",
 	barRelativePoint = "CENTER",
 	barX = 0,
 	barY = 200,
+
+	-- Width matters more here than it did for the bar: the whole key is on one
+	-- axis, so four bosses and their ranges on a narrow frame are a row of
+	-- touching blocks. The default is wide enough for a five-boss dungeon.
+	barWidth = 340,
 
 	DEBUG_ENABLED = false,
 }

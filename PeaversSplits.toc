@@ -25,6 +25,6 @@ src\Core\Run.lua
 src\Core\Sync.lua
 src\Core\Events.lua
 
-src\UI\PaceBar.lua
+src\UI\Timeline.lua
 
 src\Main.lua

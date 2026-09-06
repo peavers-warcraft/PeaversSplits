@@ -52,8 +52,8 @@ local function PrintStatus()
 
 	local run = PS.Run
 	if not run.active then
-		Utils.Print(PS, PS.PaceBar:IsPreviewing()
-			and "no keystone running - the bar on screen is the test bar (/ps test to hide it)."
+		Utils.Print(PS, PS.Timeline:IsPreviewing()
+			and "no keystone running - what is on screen is the sample run (/ps test to hide it)."
 			or "no keystone running.")
 		-- Said here too. Nothing is announced outside a key at all, so somebody
 		-- checking their settings before a run needs to see where splits WOULD go.
@@ -125,15 +125,15 @@ PeaversCommons.SlashCommands:Register(addonName, "ps", {
 	status = function()
 		PrintStatus()
 	end,
-	-- Reachable without opening settings, because placing the bar means dragging
-	-- it around the screen and the settings window is usually sitting on top of
-	-- where it needs to go.
+	-- Reachable without opening settings, because placing the timeline means
+	-- dragging it around the screen and the settings window is usually sitting on
+	-- top of where it needs to go.
 	test = function()
 		local Utils = PeaversCommons.Utils
-		if PS.PaceBar:TogglePreview() then
-			Utils.Print(PS, "test bar shown - drag it into place, /ps test again to hide it.")
+		if PS.Timeline:TogglePreview() then
+			Utils.Print(PS, "sample run shown - drag it into place, /ps test again to hide it.")
 		else
-			Utils.Print(PS, "test bar hidden.")
+			Utils.Print(PS, "sample run hidden.")
 		end
 	end,
 })
@@ -158,7 +158,7 @@ PeaversCommons.Events:Init(addonName, function()
 		PS.ConfigUI:Initialize()
 	end
 
-	PS.PaceBar:Initialize()
+	PS.Timeline:Initialize()
 	PS.Sync:Initialize()
 	PS.Events:Initialize()
 

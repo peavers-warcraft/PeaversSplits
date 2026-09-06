@@ -162,6 +162,9 @@ local function newFrame(width)
 	frame.CreateTexture = function() return newFrame(width) end
 	frame.GetNumPoints = function() return 0 end
 	frame.GetStringWidth = function() return 50 end
+	-- Read as a value and added to: the timeline stacks its nodes and its marker
+	-- above the rail by frame level rather than by creation order.
+	frame.GetFrameLevel = function() return 1 end
 	frame.IsShown = function() return true end
 	frame.GetObjectType = function() return "Frame" end
 	frame.GetScale = function() return 1 end

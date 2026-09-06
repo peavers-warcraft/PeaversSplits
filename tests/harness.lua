@@ -80,7 +80,7 @@ local function newFrame()
 	-- The getters that are read as VALUES rather than called for effect. A
 	-- permissive stub answers these with the frame itself, and `width <= 0` then
 	-- compares a table to a number and throws - so they are spelled out. The
-	-- width is a plausible bar width, because PaceBar divides by it.
+	-- width is a plausible bar width, because the timeline divides by it.
 	frame.GetWidth = function() return 300 end
 	frame.GetHeight = function() return 20 end
 	frame.GetLeft = function() return 0 end
@@ -92,6 +92,9 @@ local function newFrame()
 	frame.GetAlpha = function() return 1 end
 	frame.GetValue = function() return 0 end
 	frame.GetNumPoints = function() return 0 end
+	-- Read as a value and added to: the timeline stacks its nodes and its marker
+	-- above the rail by frame level rather than by creation order.
+	frame.GetFrameLevel = function() return 1 end
 	frame.GetStringWidth = function() return 50 end
 	frame.IsShown = function() return true end
 	frame.IsVisible = function() return true end

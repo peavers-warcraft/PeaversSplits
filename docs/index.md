@@ -12,8 +12,9 @@ second boss.
 Kystia Manaheart down at 8:17, +0:31 vs pace, inside the usual range.
 ```
 
-A live bar tracks the gap against the next boss continuously, so you watch it
-open rather than hearing about it once the boss is down.
+A live timeline holds the whole key on one line - every boss a node, you a dot
+travelling towards them - so you watch a gap open rather than hearing about it
+once the boss is down.
 
 Requires [PeaversSplitsData](https://github.com/peavers-warcraft/PeaversSplitsData)
 for the benchmark, which is generated daily from [parses.gg](https://parses.gg).

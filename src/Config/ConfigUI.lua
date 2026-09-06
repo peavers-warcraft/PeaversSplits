@@ -104,11 +104,11 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 		indent, y, width)
 	y = noteY - 8
 
-	local _, barY = W:CreateSectionHeader(parentFrame, "The live bar", indent, y)
+	local _, barY = W:CreateSectionHeader(parentFrame, "The live timeline", indent, y)
 	y = barY - 8
 
 	local barOptions = {
-		{ key = "showBar", label = "Show the pace bar during a key" },
+		{ key = "showBar", label = "Show the timeline during a key" },
 		{ key = "lockBar", label = "Lock it in place" },
 	}
 
@@ -119,7 +119,7 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 			onChange = function(checked)
 				PS.Config[option.key] = checked
 				PS.Config:Save()
-				PS.PaceBar:Update()
+				PS.Timeline:Update()
 			end,
 		})
 		checkbox:SetPoint("TOPLEFT", indent, y)
@@ -128,18 +128,39 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 
 	y = y - 8
 
-	-- The bar otherwise only exists during a key, so its size and position had to
-	-- be chosen blind and checked by walking into a dungeon. This draws it with a
-	-- sample boss on a looping clock, through the real rendering path.
+	-- Width is a real setting here rather than a preference: the whole key shares
+	-- one axis, so a narrow frame packs four bosses and their ranges into a row of
+	-- touching blocks.
+	local widthSlider = W:CreateSlider(parentFrame, "Width", {
+		width = width,
+		min = 240,
+		max = 640,
+		step = 10,
+		value = PS.Config.barWidth or 340,
+		format = function(value)
+			return ("%d px"):format(math.floor(value + 0.5))
+		end,
+		onChange = function(value)
+			PS.Config.barWidth = value
+			PS.Config:Save()
+			PS.Timeline:ApplyWidth()
+		end,
+	})
+	widthSlider:SetPoint("TOPLEFT", indent, y)
+	y = y - 52
+
+	-- The timeline otherwise only exists during a key, so its size and position
+	-- had to be chosen blind and checked by walking into a dungeon. This draws it
+	-- with a sample dungeon on a looping clock, through the real rendering path.
 	local function previewLabel()
-		return PS.PaceBar:IsPreviewing() and "Hide the test bar" or "Show a test bar"
+		return PS.Timeline:IsPreviewing() and "Hide the sample run" or "Show a sample run"
 	end
 
 	local previewButton
 	previewButton = W:CreateButton(parentFrame, previewLabel(), {
 		width = 150,
 		onClick = function()
-			PS.PaceBar:TogglePreview()
+			PS.Timeline:TogglePreview()
 			-- Read the state back rather than assuming the toggle took: it refuses
 			-- while a key is running, and a button that lies about which way it went
 			-- is worse than one that does nothing.
@@ -150,13 +171,15 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 	y = y - 34
 
 	local _, barNoteY = AddNote(parentFrame,
-		"Drag it to move it. The track runs to a little past the pool's slow " ..
-		"quarter, the shaded block is its middle half, and the line is the pace " ..
-		"itself - so being inside the block is something you can see rather than " ..
-		"something you have to be told.\n\n" ..
-		"The test bar sweeps a sample boss so you can place it outside a key. Its " ..
-		"numbers are invented and it says so in its header; a real key takes the " ..
-		"bar back automatically.",
+		"One line for the whole key, from the start to the last boss's pace. Every " ..
+		"boss is a node on it, sitting in the shaded block that is the middle half " ..
+		"of its pool, and the dot travelling the line is you. Once a boss is down " ..
+		"its node dims and a second node appears where it actually died - the gap " ..
+		"between the two is the delta, drawn to scale. Point at any of them for the " ..
+		"boss's name and figures.\n\n" ..
+		"Drag it to move it. The sample run sweeps an invented dungeon so you can " ..
+		"place it outside a key; it says so in its header, and a real key takes the " ..
+		"timeline back automatically.",
 		indent, y, width)
 	y = barNoteY - 8
 

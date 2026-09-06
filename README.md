@@ -8,7 +8,7 @@ A World of Warcraft addon that calls out how far ahead or behind the pace your M
 
 <!-- peavers:features -->
 - A split called out at every boss, while the key is still running -- not a verdict at the end
-- A live bar that races the **next** boss's pace, so you watch a gap open instead of being told about it once the boss is down
+- A live timeline of the whole key: every boss a node on one line, and you a dot travelling it, so you watch a gap open instead of being told about it once the boss is down
 - Compared against your exact keystone level, never a neighbouring one
 - Says "inside the usual range" when a delta lands inside the middle half of the pool -- a measurement, not a verdict
 - Says plainly when your level has no published pool, and names the levels that do
@@ -22,9 +22,9 @@ A World of Warcraft addon that calls out how far ahead or behind the pace your M
 <!-- peavers:usage -->
 1. Install it and start a key -- there is nothing to configure first
 2. At the start of the run it says what it is pacing you against, or that nothing is published for your level
-3. Watch the bar for the next boss; the delta is written out in words as well as drawn
+3. Watch the timeline: the dot is you, the nodes are the bosses, and the delta is written out in words as well as drawn
 4. Each boss death is called out in party chat with the split and the delta
-5. `/ps test` shows a test bar you can drag into place; `/ps config` opens the settings
+5. `/ps test` shows a sample run you can drag into place; `/ps config` opens the settings
 <!-- /peavers:usage -->
 
 <!-- peavers:custom -->
@@ -37,31 +37,56 @@ Lithiel Cinderfury down at 28:08, +1:52 vs pace.
 Key done. +1:52 at the last boss.
 ```
 
-## The live bar
+## The live timeline
 
-The chat line is the record; the bar is the instrument. It runs continuously
-against the **next** boss's pace, so a gap is something you watch open rather
-than something you are told about once the boss is already down.
+The chat line is the record; the timeline is the instrument. It runs
+continuously, and it holds the **whole key** rather than one boss at a time, so a
+gap is something you watch open rather than something you are told about once the
+boss is already down.
 
 ```
-Next: Zaen Bladesorrow                    +0:31 vs pace
-[========|####·····|                                  ]
-         ^ pace    ^ the middle half of the pool
+19:30  Next: Xathuux the Annihilator             +0:53 vs pace
+
+-----[==*===.==]-----[==.~~~~~!]------[===#==O==]------[===#==|]-----
+
+  ----  the rail: the run, from the start to the last boss's pace
+  [==]  the middle half of that boss's pool - its usual range
+  #     a boss still ahead of you: its published pace
+  .     the pace of a boss already down, stepped back
+  *     it died there, ahead of that pace
+  !     it died there, behind it
+  ~     the gap between the two, drawn to scale - that IS the delta
+  O     you, right now
+  |     the last boss's pace: the end of the line
 ```
 
-The track runs from zero to a little past the pool's slow quarter, and the scale
-is fixed - it does not grow to fit an overrun, because a track that rescales
-keeps the fill in the same place while the numbers get worse, which is the
-opposite of what an instrument is for. Past the right edge it saturates and the
-text carries the number.
+Point at any boss for its name, its pace, when it died, and how many runs the
+figure rests on.
+
+The scale is fixed - it does not grow to fit an overrun, because a track that
+rescales keeps the dot in the same place while the numbers get worse, which is
+the opposite of what an instrument is for. Past the right edge it saturates and
+the text carries the number.
 
 Ahead is the theme accent, behind is red, **and the delta is written out in
-words** - a bar that only says "bad" in red says nothing at all to a reader who
-cannot see the difference.
+words** - a display that only says "bad" in red says nothing at all to a reader
+who cannot see the difference. The geometry says it a third time: a kill drawn to
+the right of its pace node is late, whatever colour anybody's monitor makes of
+it.
 
-Drag to move, lockable, and it hides itself whenever there is no pace to race
-(an uncovered level, or every boss already down). A bar with nothing to compare
-against is just a line.
+Drag to move, lockable, resizable, and it hides itself whenever there is no pace
+to race - a rail with one dot sliding along it and no bosses on it is not an
+instrument.
+
+### Why the deadline is not drawn on it
+
+The obvious finish line is the dungeon's own time limit, and it is deliberately
+absent. The keystone timer carries the death penalty; no published split carries
+any. Drawing the two on one axis would put the deadline five seconds per death
+away from the truth, always in the same direction, with nothing about it looking
+wrong. The last boss's pace is the end of the run that can honestly be compared -
+the same reason the end-of-run line sums up at the last boss rather than at the
+portal.
 
 ## Why splits and not the timer
 
@@ -102,7 +127,7 @@ between a measurement and a verdict, and it is on by default.
 | command | what it does |
 |---|---|
 | `/ps` or `/ps status` | what is loaded, what is running, and what it is being paced against |
-| `/ps test` | show/hide the test bar, for dragging it into place |
+| `/ps test` | show/hide the sample run, for dragging the timeline into place |
 | `/ps config` | settings |
 
 ## Notes on the clock
@@ -122,7 +147,7 @@ falls back to the game's own keystone timer, and says that it has done so.
 <!-- peavers:configuration -->
 `/ps config` (or PeaversConfig) offers: announcements on/off and the channel,
 the interquartile spread, sample size, the start-of-run and end-of-run lines,
-group sync, and the live bar (show, lock, position).
+group sync, and the live timeline (show, lock, position, width).
 
 Party chat is the default, because a split is a fact about the group's run.
 "Only me" is available. **SAY and YELL are deliberately not offered** - they

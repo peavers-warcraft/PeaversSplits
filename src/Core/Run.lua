@@ -239,7 +239,7 @@ function Run:Start(eventMapID)
 	end
 
 	PS.Sync:OnRunStarted()
-	PS.PaceBar:Update()
+	PS.Timeline:Update()
 end
 
 ---Keep asking which key this is, and announce only once BOTH facts are known.
@@ -273,7 +273,7 @@ function Run:ResolveRun(token, attempt)
 		-- this the group stays unsynced until the next heartbeat, for no reason
 		-- other than the client having been slow to publish the keystone.
 		PS.Sync:Broadcast()
-		PS.PaceBar:Update()
+		PS.Timeline:Update()
 		return
 	end
 
@@ -414,7 +414,7 @@ function Run:Stop()
 	self.recoverToken = self.recoverToken + 1
 
 	PS.Sync:OnRunStopped()
-	PS.PaceBar:Update()
+	PS.Timeline:Update()
 end
 
 --------------------------------------------------------------------------------
@@ -474,7 +474,7 @@ function Run:RecordKill(encounterID, encounterName, elapsed, announce)
 		PS.Pace:OnBossKilled(self, encounterID, encounterName, elapsed, self.order)
 	end
 
-	PS.PaceBar:Update()
+	PS.Timeline:Update()
 	return true
 end
 

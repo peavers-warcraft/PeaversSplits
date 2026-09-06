@@ -116,17 +116,24 @@ end)
 case("a level that genuinely has no pool still says so", function()
 	local game, PS = harness.load()
 
-	-- Murder Row publishes 7, 9, 10, 11, 12. A +14 is a real miss, and the honest
-	-- answer is still to name what exists rather than reach for a nearby level.
+	-- A +14 is a real miss, and the honest answer is still to name what exists
+	-- rather than reach for a nearby level.
+	--
+	-- The expected list is read back from the pool rather than written out here.
+	-- It used to be the literal "7, 9, 10, 11, 12", which stopped being true the
+	-- next time the data addon regenerated and left a red test that said nothing
+	-- about this addon: the published levels are somebody else's release, and a
+	-- test that freezes them is testing the calendar.
 	game.keystoneLevel = 14
 	game.activeMapID = MURDER_ROW
 	game.challengeActive = true
 
 	PS.Events:Handle("CHALLENGE_MODE_START", MURDER_ROW)
 
+	local levels = PS.GetDataAPI().GetLevels(MURDER_ROW)
 	check(said(game, "No pace published for Murder Row +14 yet"),
 		"reports the uncovered level\n" .. transcript(game))
-	check(said(game, "7, 9, 10, 11, 12"),
+	check(#levels > 0 and said(game, table.concat(levels, ", ")),
 		"lists the levels that do have data\n" .. transcript(game))
 	check(not said(game, "Pacing"), "compares against nothing")
 end)
@@ -259,90 +266,174 @@ case("a dungeon that never becomes readable says so, and says which half", funct
 end)
 
 --------------------------------------------------------------------------------
--- The test bar. It exists so the layout can be judged outside a key, so what
--- matters is that it goes through the SAME Refresh a real run does - a preview
--- with its own drawing code would agree with the real bar only until one of
+-- The timeline. It exists so the whole run can be read at a glance, and the
+-- sample run exists so the layout can be judged outside a key - so what matters
+-- is that the sample goes through the SAME Refresh a real run does. A preview
+-- with its own drawing code would agree with the real thing only until one of
 -- them changed.
+--
+-- The geometry is the whole point. A rail with no nodes on it would look fine in
+-- a screenshot and tell you nothing about placement, and the offline harness is
+-- the only place any of these numbers get checked at all.
 --------------------------------------------------------------------------------
 
-case("the test bar draws without a key", function()
+local function nodeCount(state)
+	return state.nodes and #state.nodes or 0
+end
+
+case("the sample run draws the whole dungeon without a key", function()
 	local _, PS = harness.load()
 
-	check(not PS.PaceBar:IsPreviewing(), "starts off")
-	check(PS.PaceBar:GetState().shown == false, "and the bar starts hidden")
+	check(not PS.Timeline:IsPreviewing(), "starts off")
+	check(PS.Timeline:GetState().shown == false, "and the timeline starts hidden")
 
-	check(PS.PaceBar:TogglePreview() == true, "toggling turns it on")
+	check(PS.Timeline:TogglePreview() == true, "toggling turns it on")
 
-	local state = PS.PaceBar:GetState()
-	check(state.shown == true, "the bar is drawn with no run active")
+	local state = PS.Timeline:GetState()
+	check(state.shown == true, "the timeline is drawn with no run active")
 	check(state.preview == true, "and knows it is showing invented numbers")
 	check(state.header ~= nil and state.header:find("Preview:", 1, true) ~= nil,
 		"its header says so, got " .. tostring(state.header))
 
-	-- The geometry is the whole point: a track with no band or tick would look
-	-- fine in a screenshot and tell you nothing about placement.
-	check((state.bandWidth or 0) > 0, "the band has width, got " .. tostring(state.bandWidth))
-	check((state.tick or 0) > 0, "the tick is placed, got " .. tostring(state.tick))
-	check((state.fillWidth or 0) > 0, "the fill has width, got " .. tostring(state.fillWidth))
+	check(nodeCount(state) > 1,
+		"every boss of the sample is on the line, got " .. tostring(nodeCount(state)))
 
-	-- It opens on the pace, so the first thing drawn is the state that shows the
-	-- most: fill, band and tick together rather than an empty track.
-	check(math.abs((state.fillWidth or 0) - (state.tick or 0)) < 2,
-		("the fill opens on the tick, %s vs %s")
-			:format(tostring(state.fillWidth), tostring(state.tick)))
-	check(state.delta == "on pace", "and reads as on pace, got " .. tostring(state.delta))
+	-- The axis runs left to right in route order, and the last boss is the
+	-- finish. A node out of sequence would draw a run that walks backwards.
+	local previous = -1
+	local ordered = true
+	for _, node in ipairs(state.nodes) do
+		if node.paceX <= previous then
+			ordered = false
+		end
+		previous = node.paceX
+	end
+	check(ordered, "the nodes march left to right")
 
-	check(PS.PaceBar:TogglePreview() == false, "toggling again turns it off")
-	check(PS.PaceBar:GetState().shown == false, "and hides the bar")
+	check((state.finishX or 0) > 0, "the finish is placed, got " .. tostring(state.finishX))
+	check(state.finishX <= state.width,
+		"and inside the track, got " .. tostring(state.finishX) .. " of " .. tostring(state.width))
+	check(math.abs(state.nodes[nodeCount(state)].paceX - state.finishX) < 1,
+		"the finish is the last boss's pace")
+
+	-- Every boss carries its middle half as ground, which is the sentence
+	-- "inside the usual range" drawn instead of said.
+	local ranged = true
+	for _, node in ipairs(state.nodes) do
+		if not node.rangeWidth or node.rangeWidth <= 1 then
+			ranged = false
+		end
+	end
+	check(ranged, "every boss draws its usual range")
+
+	check(PS.Timeline:TogglePreview() == false, "toggling again turns it off")
+	check(PS.Timeline:GetState().shown == false, "and hides the timeline")
 end)
 
-case("the test bar ignores the show-bar checkbox", function()
+case("the sample run shows a boss already down, and where it died", function()
 	local _, PS = harness.load()
 
-	-- Someone with the bar switched off is exactly the person who wants to see
-	-- what they would be switching on.
-	PS.Config.showBar = false
-	PS.PaceBar:SetPreview(true)
+	PS.Timeline:SetPreview(true)
+	local state = PS.Timeline:GetState()
 
-	check(PS.PaceBar:GetState().shown == true, "still draws when the bar is disabled")
+	-- The sample opens partway in on purpose: an empty rail is the one state
+	-- that says nothing about the layout.
+	local killed, pending = 0, 0
+	for _, node in ipairs(state.nodes) do
+		if node.killed then
+			killed = killed + 1
+			check(node.actualX ~= nil,
+				("boss %s is down and drew its kill"):format(tostring(node.name)))
+		else
+			pending = pending + 1
+		end
+	end
+
+	check(killed > 0, "some of the sample is already down, got " .. tostring(killed))
+	check(pending > 0, "and some is still ahead, got " .. tostring(pending))
+
+	-- Both colours have to appear somewhere, or the half that is broken ships.
+	local ahead, behind = false, false
+	for _, node in ipairs(state.nodes) do
+		if node.delta then
+			if node.delta < 0 then ahead = true end
+			if node.delta > 0 then behind = true end
+		end
+	end
+	check(ahead, "one kill is ahead of its pace")
+	check(behind, "and one is behind it")
+
+	-- The gap between a pace node and its mark IS the delta. A mark drawn on the
+	-- wrong side of its pace would read as the opposite claim, in a display whose
+	-- whole argument is that geometry says it as well as colour does.
+	local sided = true
+	for _, node in ipairs(state.nodes) do
+		if node.delta and node.delta > 0 and node.actualX <= node.paceX then
+			sided = false
+		end
+		if node.delta and node.delta < 0 and node.actualX >= node.paceX then
+			sided = false
+		end
+	end
+	check(sided, "a late kill is drawn to the right of its pace, an early one to the left")
 end)
 
-case("the test bar sweeps, so both colours can be seen", function()
+case("the sample run ignores the show-timeline checkbox", function()
+	local _, PS = harness.load()
+
+	-- Someone with the timeline switched off is exactly the person who wants to
+	-- see what they would be switching on.
+	PS.Config.showBar = false
+	PS.Timeline:SetPreview(true)
+
+	check(PS.Timeline:GetState().shown == true, "still draws when the timeline is disabled")
+end)
+
+case("the sample run sweeps, so the marker can be seen moving", function()
 	local game, PS = harness.load()
 
-	PS.PaceBar:SetPreview(true)
-	local first = PS.PaceBar:GetState().fillWidth
+	PS.Timeline:SetPreview(true)
+	local first = PS.Timeline:GetState().markerX
 
 	-- Far enough round the loop to be unmistakably elsewhere, but not a whole
 	-- cycle back to the start.
 	game.now = game.now + 5
-	PS.PaceBar:Refresh()
-	local second = PS.PaceBar:GetState().fillWidth
+	PS.Timeline:Refresh()
+	local second = PS.Timeline:GetState().markerX
 
 	check(second ~= first,
-		("the fill moves with the clock, %s then %s"):format(tostring(first), tostring(second)))
+		("the marker moves with the clock, %s then %s"):format(tostring(first), tostring(second)))
 end)
 
-case("a real key takes the bar back from the test bar", function()
+case("a real key takes the timeline back from the sample run", function()
 	local game, PS = harness.load()
 
-	PS.PaceBar:SetPreview(true)
-	check(PS.PaceBar:IsPreviewing(), "previewing before the key")
+	PS.Timeline:SetPreview(true)
+	check(PS.Timeline:IsPreviewing(), "previewing before the key")
 
 	game.keystoneLevel = 10
 	game.activeMapID = MURDER_ROW
 	game.challengeActive = true
 	PS.Events:Handle("CHALLENGE_MODE_START", MURDER_ROW)
 
-	check(not PS.PaceBar:IsPreviewing(), "the key reclaims the bar")
+	check(not PS.Timeline:IsPreviewing(), "the key reclaims the timeline")
 
-	local state = PS.PaceBar:GetState()
-	check(state.preview == false, "and the bar stops calling itself a preview")
-	check(state.header ~= nil and state.header:find("Next:", 1, true) ~= nil,
-		"it is racing a real boss, got " .. tostring(state.header))
+	local state = PS.Timeline:GetState()
+	check(state.preview == false, "and it stops calling itself a preview")
+	check(state.header ~= nil and state.header:find("Preview:", 1, true) == nil,
+		"it is drawing a real dungeon, got " .. tostring(state.header))
+	check(nodeCount(state) > 0,
+		"with the real dungeon's bosses on it, got " .. tostring(nodeCount(state)))
+
+	-- Nothing is down yet, so nothing may claim to be.
+	local anyKilled = false
+	for _, node in ipairs(state.nodes) do
+		if node.killed then anyKilled = true end
+	end
+	check(not anyKilled, "and nothing marked down at the start of the key")
 end)
 
-case("the test bar refuses to start mid-key", function()
+case("a boss dying moves onto the line", function()
 	local game, PS = harness.load()
 
 	game.keystoneLevel = 10
@@ -350,12 +441,57 @@ case("the test bar refuses to start mid-key", function()
 	game.challengeActive = true
 	PS.Events:Handle("CHALLENGE_MODE_START", MURDER_ROW)
 
-	PS.PaceBar:SetPreview(true)
+	local before = PS.Timeline:GetState()
+	check(nodeCount(before) > 0, "the dungeon drew")
 
-	check(not PS.PaceBar:IsPreviewing(),
+	local first = before.nodes[1]
+	game:advance(60)
+	PS.Events:Handle("ENCOUNTER_END", first.id, "Kystia Manaheart", 8, 5, 1)
+	PS.Timeline:Refresh()
+
+	local after = PS.Timeline:GetState()
+	check(after.nodes[1].killed == true,
+		"the boss that died is marked down on the line")
+	check(after.nodes[1].actualX ~= nil, "and drew where it died")
+	check(after.nodes[1].delta ~= nil, "with a delta against its pace")
+
+	-- The header races the NEXT one, which is the whole reason this is drawn
+	-- while the key is running rather than after it.
+	check(after.header ~= before.header,
+		("the timeline moved on to the next boss, %s then %s")
+			:format(tostring(before.header), tostring(after.header)))
+end)
+
+case("the sample run refuses to start mid-key", function()
+	local game, PS = harness.load()
+
+	game.keystoneLevel = 10
+	game.activeMapID = MURDER_ROW
+	game.challengeActive = true
+	PS.Events:Handle("CHALLENGE_MODE_START", MURDER_ROW)
+
+	PS.Timeline:SetPreview(true)
+
+	check(not PS.Timeline:IsPreviewing(),
 		"a running key is not overwritten with a sample\n" .. transcript(game))
 	check(said(game, "not while a key is running"), "and says why\n" .. transcript(game))
 end)
+
+case("an uncovered level draws nothing at all", function()
+	local game, PS = harness.load()
+
+	-- A rail with one dot sliding along it and no bosses on it is not an
+	-- instrument, and it would be the one surface here that looked like a
+	-- measurement without being one.
+	game.keystoneLevel = 30
+	game.activeMapID = MURDER_ROW
+	game.challengeActive = true
+	PS.Events:Handle("CHALLENGE_MODE_START", MURDER_ROW)
+
+	check(PS.Timeline:GetState().shown == false,
+		"nothing published for the level, so nothing is drawn")
+end)
+
 
 --------------------------------------------------------------------------------
 -- Every .lua on disk is listed in the TOC, and every listed file exists.
