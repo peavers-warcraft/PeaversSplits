@@ -535,8 +535,16 @@ case("the TOCs and the files on disk agree", function()
 		end
 
 		-- `tests/` is deliberately not shipped, so it is not expected in the TOC.
-		local find = io.popen(("find %q -name '*.lua' -not -path '*/tests/*' -not -path '*/.git/*'")
-			:format(root))
+		--
+		-- `.claude/` is skipped for a different reason: a worktree is a whole second
+		-- checkout at `.claude/worktrees/<name>`, INSIDE the repo it came from. Every
+		-- addon file in it is then "on disk" and correctly absent from the TOC, so
+		-- this check failed ten times over for anybody working in one - a red suite
+		-- that says nothing at all about the addon. Nothing under `.claude/` is
+		-- shipped either: the deploy and the packager both exclude it.
+		local find = io.popen((
+			"find %q -name '*.lua' -not -path '*/tests/*' -not -path '*/.git/*' " ..
+			"-not -path '*/.claude/*'"):format(root))
 		for raw in find:lines() do
 			local line = raw
 			local relative = line:sub(#root + 2)
