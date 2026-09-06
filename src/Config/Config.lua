@@ -68,10 +68,16 @@ local PS_DEFAULTS = {
 	barX = 0,
 	barY = 200,
 
-	-- Width matters more here than it did for the bar: the whole key is on one
-	-- axis, so four bosses and their ranges on a narrow frame are a row of
-	-- touching blocks. The default is wide enough for a five-boss dungeon.
+	-- Length matters more here than width did for the bar: the whole key is on one
+	-- axis, so four bosses and their ranges on a short frame are a row of touching
+	-- blocks. The default is long enough for a five-boss dungeon.
 	barWidth = 340,
+
+	-- The panel behind it, off by default. This is a line drawn over the world
+	-- rather than a window, and a 58px black box around forty pixels of instrument
+	-- is mostly box. The instrument keeps its own slim ground either way, so
+	-- switching this off removes the frame and not the legibility.
+	showBackground = false,
 
 	DEBUG_ENABLED = false,
 }

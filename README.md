@@ -74,9 +74,16 @@ who cannot see the difference. The geometry says it a third time: a kill drawn t
 the right of its pace node is late, whatever colour anybody's monitor makes of
 it.
 
-Drag to move, lockable, resizable, and it hides itself whenever there is no pace
-to race - a rail with one dot sliding along it and no bosses on it is not an
-instrument.
+Drag to move, lockable, and its length is a setting - the whole key shares one
+axis, so a short frame packs the bosses into a row of touching blocks. It hides
+itself whenever there is no pace to race: a rail with one dot sliding along it
+and no bosses on it is not an instrument.
+
+**No panel behind it by default.** This is a line drawn over the world, not a
+window, and a box around forty pixels of instrument is mostly box. The line keeps
+its own slim ground and the text is shadowed, so the greys stay readable against
+whatever is behind them; the panel is there in the settings for anyone who wants
+the frame back.
 
 ### Why the deadline is not drawn on it
 
@@ -147,7 +154,7 @@ falls back to the game's own keystone timer, and says that it has done so.
 <!-- peavers:configuration -->
 `/ps config` (or PeaversConfig) offers: announcements on/off and the channel,
 the interquartile spread, sample size, the start-of-run and end-of-run lines,
-group sync, and the live timeline (show, lock, position, width).
+group sync, and the live timeline (show, lock, position, length, panel).
 
 Party chat is the default, because a split is a fact about the group's run.
 "Only me" is available. **SAY and YELL are deliberately not offered** - they

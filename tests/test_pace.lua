@@ -462,6 +462,31 @@ case("a boss dying moves onto the line", function()
 			:format(tostring(before.header), tostring(after.header)))
 end)
 
+case("the panel comes off without taking the instrument's ground with it", function()
+	local _, PS = harness.load()
+
+	-- Off by default: this is a line drawn over the world, not a window.
+	check(PS.Config.showBackground == false, "no panel out of the box")
+
+	PS.Timeline:SetPreview(true)
+	check(PS.Timeline:GetState().background == false,
+		"and the timeline agrees it is drawing without one")
+
+	PS.Config.showBackground = true
+	PS.Timeline:Update()
+	check(PS.Timeline:GetState().background == true, "switching it on is picked up")
+
+	PS.Config.showBackground = false
+	PS.Timeline:Update()
+	check(PS.Timeline:GetState().background == false, "and switching it back off")
+
+	-- Everything else has to be untouched by the panel: "no background" is a
+	-- request about the box, not about the readings inside it.
+	local state = PS.Timeline:GetState()
+	check(state.shown == true, "the timeline still draws with no panel")
+	check((state.nodes and #state.nodes or 0) > 0, "and still has its bosses on it")
+end)
+
 case("the sample run refuses to start mid-key", function()
 	local game, PS = harness.load()
 

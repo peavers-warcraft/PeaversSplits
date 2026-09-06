@@ -110,6 +110,7 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 	local barOptions = {
 		{ key = "showBar", label = "Show the timeline during a key" },
 		{ key = "lockBar", label = "Lock it in place" },
+		{ key = "showBackground", label = "Draw a background panel behind it" },
 	}
 
 	for _, option in ipairs(barOptions) do
@@ -128,10 +129,10 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 
 	y = y - 8
 
-	-- Width is a real setting here rather than a preference: the whole key shares
-	-- one axis, so a narrow frame packs four bosses and their ranges into a row of
+	-- Length is a real setting here rather than a preference: the whole key shares
+	-- one axis, so a short frame packs four bosses and their ranges into a row of
 	-- touching blocks.
-	local widthSlider = W:CreateSlider(parentFrame, "Width", {
+	local widthSlider = W:CreateSlider(parentFrame, "Length", {
 		width = width,
 		min = 240,
 		max = 640,
@@ -179,7 +180,10 @@ function ConfigUI:BuildAnnouncementsPage(parentFrame)
 		"boss's name and figures.\n\n" ..
 		"Drag it to move it. The sample run sweeps an invented dungeon so you can " ..
 		"place it outside a key; it says so in its header, and a real key takes the " ..
-		"timeline back automatically.",
+		"timeline back automatically.\n\n" ..
+		"There is no panel behind it by default. The line keeps its own slim ground " ..
+		"so the greys stay readable over the world; what goes away is the box round " ..
+		"them.",
 		indent, y, width)
 	y = barNoteY - 8
 

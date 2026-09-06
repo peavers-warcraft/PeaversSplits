@@ -66,6 +66,7 @@ local Timeline = {}
 PS.Timeline = Timeline
 
 local frame, track, rail, trail, marker, playhead, finishLine
+local panelBg, trackBg
 local headerText, deltaText, finishText
 local nodes = {}
 local lastUpdate = 0
@@ -360,9 +361,9 @@ function Timeline:Initialize()
 	frame:SetScript("OnDragStart", startDrag)
 	frame:SetScript("OnDragStop", stopDrag)
 
-	local bg = frame:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints()
-	bg:SetColorTexture(colour("bgPanel", { 0.086, 0.086, 0.086, 1 }))
+	panelBg = frame:CreateTexture(nil, "BACKGROUND", nil, -2)
+	panelBg:SetAllPoints()
+	panelBg:SetColorTexture(colour("bgPanel", { 0.086, 0.086, 0.086, 1 }))
 
 	headerText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	headerText:SetPoint("TOPLEFT", 10, -6)
@@ -377,6 +378,15 @@ function Timeline:Initialize()
 	track:SetPoint("TOPLEFT", TRACK_INSET, -22)
 	track:SetPoint("TOPRIGHT", -TRACK_INSET, -22)
 	track:SetHeight(TRACK_HEIGHT)
+
+	-- Ground for the instrument, and only for the instrument. With the panel
+	-- switched off the rail is a dark grey hairline over whatever the world
+	-- happens to be behind it, which over stone is nothing at all - so the strip
+	-- the readings actually sit on stays, narrowed from a 58px box to the 20px
+	-- that has something drawn on it. See SetChrome.
+	trackBg = track:CreateTexture(nil, "BACKGROUND", nil, -2)
+	trackBg:SetAllPoints()
+	trackBg:SetColorTexture(0, 0, 0, 0.55)
 
 	-- The run, end to end. Everything else is drawn against this one line.
 	rail = track:CreateTexture(nil, "BACKGROUND")
@@ -427,6 +437,17 @@ function Timeline:Initialize()
 		marker:SetColorTexture(paint("ahead"))
 	end
 
+	-- Every reading here has to survive being read off a transparent frame over
+	-- whatever the world is doing behind it. A shadow is one draw call and it is
+	-- what stops the delta - the half a colour-blind reader has - from washing out
+	-- against a snowfield.
+	for _, fontString in ipairs({ headerText, deltaText, finishText }) do
+		fontString:SetShadowColor(0, 0, 0, 1)
+		fontString:SetShadowOffset(1, -1)
+	end
+
+	self:SetChrome()
+
 	frame:SetScript("OnUpdate", function(_, elapsed)
 		lastUpdate = lastUpdate + elapsed
 		if lastUpdate < UPDATE_INTERVAL then
@@ -438,6 +459,31 @@ function Timeline:Initialize()
 
 	frame:Hide()
 	PeaversCommons.Utils.Debug(PS, "timeline created")
+end
+
+---Show or hide the panel, and put the instrument's own ground back when it goes.
+---
+---Two textures rather than one, because "no background" and "unreadable" are not
+---the same request. Switching the panel off is asking for the box to stop sitting
+---on the screen; it is not asking for a dark-grey hairline to be drawn over dark
+---grey stone. So the 58px box goes and a 20px strip stays under the part that has
+---readings on it - and when the panel IS on, that strip would only be a second
+---background over the first, so it does not draw.
+function Timeline:SetChrome()
+	if not frame then
+		return
+	end
+
+	local panel = PS.Config.showBackground and true or false
+	if panel then
+		panelBg:Show()
+		trackBg:Hide()
+	else
+		panelBg:Hide()
+		trackBg:Show()
+	end
+
+	self.state.background = panel
 end
 
 ---Re-read the configured width. Called from the settings slider.
@@ -840,10 +886,11 @@ function Timeline:GetState()
 	return out
 end
 
----Show or hide in one call, for the config toggle and the run lifecycle.
+---Show or hide in one call, for the config toggles and the run lifecycle.
 function Timeline:Update()
 	if not frame then
 		return
 	end
+	self:SetChrome()
 	self:Refresh()
 end
