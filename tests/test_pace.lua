@@ -670,6 +670,7 @@ case("the TOCs and the files on disk agree", function()
 		local find = io.popen((
 			"find %q -name '*.lua' -not -path '*/tests/*' -not -path '*/.git/*' " ..
 			"-not -path '*/.claude/*'"):format(root))
+		assert(find, "could not list the .lua files under " .. root)
 		for raw in find:lines() do
 			local line = raw
 			local relative = line:sub(#root + 2)

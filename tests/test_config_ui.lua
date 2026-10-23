@@ -184,9 +184,11 @@ end
 --------------------------------------------------------------------------------
 
 local game = harness.stubGame()
+-- Stubs a global the WoW definitions already declare.
+---@diagnostic disable-next-line: duplicate-set-field
 _G.CreateFrame = function() return newFrame(PANEL_WIDTH) end
 _G.UIParent = newFrame(PANEL_WIDTH)
-_G.unpack = _G.unpack or table.unpack
+_G.unpack = _G.unpack or rawget(table, "unpack")
 _G.GetLocale = function() return "enUS" end
 
 ---A font object. Theme builds one to letter-space the section eyebrows; the
