@@ -15,6 +15,11 @@
 
 local harness = {}
 
+---The system lua may be 5.1 (global `unpack`) or 5.2+ (`table.unpack`). LuaLS
+---checks against WoW's 5.1, where `table.unpack` does not exist, so it is
+---looked up by name rather than referenced.
+local unpack = unpack or rawget(table, "unpack")
+
 --------------------------------------------------------------------------------
 -- Where the two addons live
 --------------------------------------------------------------------------------
@@ -135,6 +140,8 @@ function harness.stubGame()
 	}
 
 	_G.UIParent = newFrame()
+	-- Stubs a global the WoW definitions already declare.
+	---@diagnostic disable-next-line: duplicate-set-field
 	_G.CreateFrame = function() return newFrame() end
 	_G.GetTime = function() return game.now end
 	_G.IsInGroup = function() return game.inGroup end
@@ -146,6 +153,8 @@ function harness.stubGame()
 
 	-- WoW's table-clearing global. Not optional: Sync wipes its roster on every
 	-- run start, before any of its "is anybody there" guards can bail out.
+	-- Stubs a global the WoW definitions already declare.
+	---@diagnostic disable-next-line: duplicate-set-field
 	_G.wipe = function(t)
 		for key in pairs(t) do
 			t[key] = nil
@@ -214,7 +223,7 @@ function harness.stubGame()
 		for index = 1, #game.worldTimers do
 			ids[index] = index
 		end
-		return table.unpack(ids)
+		return unpack(ids)
 	end
 
 	_G.GetWorldElapsedTime = function(timerID)
@@ -519,7 +528,7 @@ function harness.loadPair()
 		for index = 1, #activeClient.game.worldTimers do
 			ids[index] = index
 		end
-		return table.unpack(ids)
+		return unpack(ids)
 	end
 
 	_G.GetWorldElapsedTime = function(timerID)
